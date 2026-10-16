@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.log
+.env*
+test-data/
+.npm-cache/
+.electron-cache/
+smoke-output/
+*.codexbundle
+*.jsonl
+*.sqlite*
+*.db
+import-records/
+# Local repair scripts are not part of the public product.
+scripts/*
+!scripts/build-portable.ps1
+!scripts/test-project-native.cjs

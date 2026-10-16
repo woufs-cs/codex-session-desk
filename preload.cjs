@@ -1,0 +1,3 @@
+const {contextBridge,ipcRenderer}=require('electron');
+const names=["undoDesktopMembership","moveDesktopThread","setTitlePolicy","renameDesktopObject","storageOverview","desktopReceive","desktopWorkspace","desktopStatus","conversationProject","inspectCodexProjects","saveConversationProject","setRestoreMapping","conversationPlan","recoveryStatus","clearSyncPlans","choose","home","test","publish","catalog","bind","download","settings","saveSettings","loadEnv","restore","verifyRecovery","detectCodex","chooseCodex","chooseRestoreHome"];
+contextBridge.exposeInMainWorld('desk',Object.fromEntries(names.map(n=>[n,(...a)=>ipcRenderer.invoke(n,...a)])));

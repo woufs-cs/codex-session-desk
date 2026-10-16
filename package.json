@@ -1,0 +1,23 @@
+{
+  "name": "codex-session-desk",
+  "version": "0.15.0",
+  "private": true,
+  "description": "Local-first Codex conversation browser and peer snapshot synchronization",
+  "license": "MIT",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "check": "node --check core.cjs && node --check main.cjs && node --check desktop-ui.js"
+  },
+  "devDependencies": {
+    "electron": "^41.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/woufs-cs/codex-session-desk.git"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
