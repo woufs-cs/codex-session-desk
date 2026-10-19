@@ -17,7 +17,7 @@ function mapped(raw,cwd,id,rootMappings=[]){
   }).join('\n')+'\n';
 }
 function branchId(id,digest){const h=c.hash(id+digest);return `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-8${h.slice(17,20)}-${h.slice(20,32)}`;}
-async function apply(rows,cache,home,cwd,{conflicts='keep-both'}={}){
+async function apply(rows,cache,home,cwd,{conflicts='keep-both',perRow=false,onProgress=()=>{}}={}){
   if(!path.isAbsolute(home)||!path.isAbsolute(cwd))throw Error('请选择绝对路径');
   if(!['keep-both','skip'].includes(conflicts))throw Error('冲突处理无效');
   await safePath(home);await fs.mkdir(home,{recursive:true});
@@ -25,9 +25,9 @@ async function apply(rows,cache,home,cwd,{conflicts='keep-both'}={}){
   const handle=await fs.open(lock,'wx').catch(()=>{throw Error('恢复锁已存在，请检查是否有未完成恢复');});
   let report,prepared;
   try{
-    const local=await c.scan(home);c.requireCompleteScan(local,home,'停止恢复');
+    const local=await c.scan(home,{previewLimit:0,onProgress});c.requireCompleteScan(local,home,'停止恢复');
     const operations=[],results=[],seen=new Set();prepared=await fs.mkdtemp(path.join(home,'.session-desk-prepared-'));
-    for(const row of rows){
+    let preparedCount=0;for(const row of rows){onProgress({stage:'校验并准备对话',current:preparedCount++,total:rows.length,detail:row.title||row.id});
       if(!/^[a-f0-9]{64}$/.test(row.hash))throw Error('无效校验值');
       if(seen.has(row.id))throw Error('恢复清单中存在重复会话');seen.add(row.id);
       const source=path.join(cache,row.hash+'.jsonl'),remote=await io.inspect(source,{previewLimit:0});
@@ -37,7 +37,8 @@ async function apply(rows,cache,home,cwd,{conflicts='keep-both'}={}){
       const targetCwd=row.targetCwd||cwd;
       if(!path.isAbsolute(targetCwd)||row.mappingError)throw Error('对话目录尚未映射：'+row.id);
       if(existing&&row.targetCwd&&!require('./project-model.cjs').same(existing.cwd,targetCwd))throw Error('已有对话的目录与映射不同，请先检查：'+row.id);
-      if(['identical','ahead'].includes(status)||(status==='conflict'&&conflicts==='skip')){results.push({id:row.id,status});continue;}
+      const decision=perRow?row.conflictPolicy:conflicts;if(status==='conflict'&&!['keep-both','skip'].includes(decision))throw Error('对话已发生冲突，请重新预览并逐条选择处理方式：'+row.id);
+      if(['identical','ahead'].includes(status)||(status==='conflict'&&decision==='skip')){results.push({id:row.id,status});continue;}
       const id=status==='conflict'?branchId(row.id,row.hash):row.id;
       const branch=local.sessions.find(s=>s.id===id);
       if(status==='conflict'&&branch){results.push({id,status:'branch-already-present'});continue;}
@@ -49,14 +50,14 @@ async function apply(rows,cache,home,cwd,{conflicts='keep-both'}={}){
     }
     const backup=path.join(home,'session-desk-backups',c.uuid());await safePath(backup);await fs.mkdir(backup,{recursive:true});
     report={created:new Date().toISOString(),state:'prepared',home,operations:[],results};
-    for(const [i,op]of operations.entries()){
+    for(const [i,op]of operations.entries()){onProgress({stage:'备份原对话',current:i,total:operations.length,detail:op.id});
       if(op.before!==null){op.backupFile=path.join(backup,`${i}.jsonl`);await io.copyAtomic(op.before,op.backupFile,{exclusive:true});if(await io.hashFile(op.backupFile)!==op.beforeHash)throw Error('目标在备份期间变化，停止恢复');}
       report.operations.push({target:op.target,id:op.id,sourceId:op.sourceId,status:op.status,beforeHash:op.beforeHash,afterHash:op.afterHash,backup:op.before===null?null:`${i}.jsonl`});
     }
     const journal=path.join(backup,'report.json');await c.atomic(journal,JSON.stringify(report,null,2));
     const applied=[];
     try{
-      for(const [i,op]of operations.entries()){
+      for(const [i,op]of operations.entries()){onProgress({stage:"写入对话",current:i,total:operations.length,detail:op.id});
         await safePath(op.target);await fs.mkdir(path.dirname(op.target),{recursive:true});
         if(op.before!==null){if(await io.hashFile(op.target)!==op.beforeHash)throw Error('目标在恢复期间变化，停止写入');await io.copyAtomic(op.content,op.target);}
         else await io.copyAtomic(op.content,op.target,{exclusive:true});

@@ -1,0 +1,13 @@
+// Runs inside the isolated packaged-app inspector, never against a real profile.
+module.exports=async function receiveUi(inspector){
+ const setup=`(()=>{const ipc=__portableElectron.ipcMain;globalThis.__receiveChoices={};ipc.removeHandler('conversationPlan');ipc.handle('conversationPlan',()=>({definition:{name:'Receive test',roots:[]},settings:{name:'Target',projectId:'fixture'},home:'D:/Fixture/.codex',mapping:{},rows:Array.from({length:120},(_,i)=>({id:'thread-'+i,title:'Conversation '+i,status:'conflict',targetCwd:'D:/Fixture'}))}));ipc.removeHandler('setConflictPolicy');ipc.handle('setConflictPolicy',(_event,id,choice)=>{__receiveChoices[id]=choice;});return true;})()`;
+ await inspector.call('Runtime.evaluate',{expression:setup,returnByValue:true});
+ const ui=`(async()=>{navigate('cloud');await drawPlan(await window.desk.conversationPlan());if(document.querySelectorAll('#syncPlan .planRow').length!==50)throw Error('Preview not paginated');const choice=document.querySelector('#syncPlan select');choice.value='skip';choice.dispatchEvent(new Event('change'));while(working)await new Promise(r=>setTimeout(r,10));const more=[...document.querySelectorAll('#syncPlan button')].find(b=>b.textContent.startsWith('显示更多'));more.click();if(document.querySelectorAll('#syncPlan .planRow').length!==100)throw Error('Pagination failed');if(!document.querySelector('.threadMark'))throw Error('Simple conversation icon missing');return 'RECEIVE_UI_PASS';})()`;
+ const result=await inspector.call('Runtime.evaluate',{expression:'__portableElectron.BrowserWindow.getAllWindows()[0].webContents.executeJavaScript('+JSON.stringify(ui)+')',awaitPromise:true,returnByValue:true});
+ if(result.result?.value!=='RECEIVE_UI_PASS')throw Error(JSON.stringify(result));
+ const choice=await inspector.call('Runtime.evaluate',{expression:'__receiveChoices["thread-0"]',returnByValue:true});if(choice.result.value!=='skip')throw Error('Per-thread conflict choice not saved');
+ await inspector.call('Runtime.evaluate',{expression:"__portableElectron.BrowserWindow.getAllWindows()[0].webContents.send('sync-progress',{stage:'写入对话',current:2,total:4})"});
+ await new Promise(r=>setTimeout(r,150));
+ const bar=await inspector.call('Runtime.evaluate',{expression:'__portableElectron.BrowserWindow.getAllWindows()[0].webContents.executeJavaScript("({value:document.querySelector(\'.syncProgress progress\').value,hidden:document.querySelector(\'.syncProgress\').hidden})")',awaitPromise:true,returnByValue:true});
+ if(bar.result.value.value!==50||bar.result.value.hidden)throw Error('Live progress not displayed');console.log('RECEIVE_UI_PASS');
+};

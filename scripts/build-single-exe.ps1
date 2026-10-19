@@ -13,7 +13,7 @@ if (!(Test-Path -LiteralPath $bundleRoot)) {
 $appRoot = Join-Path $bundleRoot 'resources\app'
 $packaged = Get-Content -LiteralPath (Join-Path $appRoot 'package.json') -Raw | ConvertFrom-Json
 if ($packaged.version -ne $metadata.version -or $packaged.productName -ne 'Session Desk') { throw 'Packaged identity mismatch.' }
-$allowlist = @('time-format.js','desktop.html','desktop.css','desktop-ui.js','desktop-policy.cjs','desktop-membership.cjs','desktop-state.cjs','desktop-properties.cjs','project-model.cjs','project-sync.cjs','codex-rpc.cjs','core.cjs','session-io.cjs','direct-webdav.cjs','git-service.cjs','git-workflow.cjs','project-files.cjs','codex-cli.cjs','recovery.cjs','main.cjs','preload.cjs','LICENSE')
+$allowlist = @('time-format.js','desktop.html','desktop.css','desktop-ui.js','desktop-policy.cjs','desktop-membership.cjs','desktop-state.cjs','desktop-properties.cjs','project-model.cjs','project-sync.cjs','codex-rpc.cjs','core.cjs','session-io.cjs','sync-worker.cjs','codex-lifecycle.cjs','direct-webdav.cjs','git-service.cjs','git-workflow.cjs','project-files.cjs','codex-cli.cjs','recovery.cjs','main.cjs','preload.cjs','LICENSE')
 $actual = @(Get-ChildItem -LiteralPath $appRoot -Recurse -File)
 if ($actual.Count -ne ($allowlist.Count + 1)) { throw 'Unexpected files in packaged app.' }
 foreach ($file in $actual) { if ($file.DirectoryName -ne $appRoot -or ($file.Name -ne 'package.json' -and $file.Name -notin $allowlist)) { throw ('Unexpected packaged file: ' + $file.Name) } }

@@ -1,0 +1,38 @@
+const {execFile,spawn}=require('node:child_process'),{promisify}=require('node:util'),fs=require('node:fs/promises'),path=require('node:path');
+const exec=promisify(execFile);
+async function powershell(script){return (await exec('powershell.exe',['-NoProfile','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{windowsHide:true,timeout:30000,maxBuffer:1024*1024})).stdout;}
+async function list(){
+ const data=await powershell("@(Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(Codex|ChatGPT)\\.exe$' } | Select-Object ProcessId,ExecutablePath,CommandLine) | ConvertTo-Json -Compress");
+ const rows=JSON.parse(data.trim()||'[]');return Array.isArray(rows)?rows:[rows];
+}
+async function desktopApps(rows){
+ const apps=[];for(const row of rows){if(!row.ExecutablePath||/--type=/.test(row.CommandLine||''))continue;
+  // Electron desktop executable only: never close the CLI or an app-server.
+  if(await fs.access(path.join(path.dirname(row.ExecutablePath),'chrome_elf.dll')).then(()=>true,()=>false))apps.push({pid:row.ProcessId,path:row.ExecutablePath});
+ }return apps;
+}
+async function close(app){
+ if(!Number.isInteger(app.pid))throw Error('无效进程');
+ await powershell(`Add-Type @'
+using System;using System.Runtime.InteropServices;
+public static class DeskClose {public delegate bool C(IntPtr h,IntPtr p);[DllImport("user32.dll")]public static extern bool EnumWindows(C c,IntPtr p);[DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr h,out uint p);[DllImport("user32.dll")]public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);public static void Send(uint target){EnumWindows((h,p)=>{uint id;GetWindowThreadProcessId(h,out id);if(id==target)PostMessage(h,16,IntPtr.Zero,IntPtr.Zero);return true;},IntPtr.Zero);}}
+'@
+[DeskClose]::Send(${app.pid})`);
+}
+async function restart(app){await new Promise((resolve,reject)=>{const p=spawn(app.path,[],{detached:true,stdio:'ignore',windowsHide:false});p.once('error',reject);p.once('spawn',()=>{p.unref();resolve();});});}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function manage(enabled,action,{onProgress=()=>{},adapter={list,desktopApps,close,restart,sleep},timeout=20000}={}){
+ const closed=[];let value,error;try{
+  const before=await adapter.list();
+  if(enabled){const apps=await adapter.desktopApps(before);for(const app of apps){onProgress({stage:'关闭 Codex',detail:'等待桌面端正常退出；不会强制结束活动任务'});closed.push(app);await adapter.close(app);}
+   const deadline=Date.now()+timeout;while((await adapter.list()).length&&Date.now()<deadline)await adapter.sleep(300);
+  }
+  if((await adapter.list()).length)throw Error('Codex 尚未完全退出（可能有 CLI、活动任务或未关闭窗口）。本次未写入，请结束任务后重试。');
+  value=await action();
+ }catch(e){error=e;}finally{
+  const remaining=await adapter.list().catch(()=>null);
+  for(const app of new Map(closed.map(a=>[a.path.toLowerCase(),a])).values()){if(!remaining||remaining.some(r=>r.ExecutablePath===app.path))continue;try{onProgress({stage:'重新打开 Codex',detail:'接收处理已结束'});await adapter.restart(app);}catch(e){const note='Codex 自动重启失败，请手动打开：'+e.message;if(error)error.message+='；'+note;else value=String(value||'')+'；'+note;}}
+ }
+ if(error)throw error;return value;
+}
+module.exports={manage,desktopApps};

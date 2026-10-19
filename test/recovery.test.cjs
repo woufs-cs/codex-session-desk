@@ -68,3 +68,11 @@ test('per-thread workdir preserves subdirectories and source project IDs are not
   assert.equal((await r.apply([rowValue],cache,home,root)).results[0].status,'identical');
   await assert.rejects(r.apply([{...rowValue,targetCwd:root}],cache,home,root),/目录与映射不同/);
 });
+
+test('per-row conflicts require a decision; skip and branch remain independent',async t=>{
+ const {root,cache,home}=await setup(t);await r.apply([await row(cache,raw()+message('local'))],cache,home,root);const remote=await row(cache,raw()+message('remote'));
+ await assert.rejects(r.apply([remote],cache,home,root,{perRow:true}),/逐条选择/);
+ const worker=require('../sync-worker.cjs'),events=[];const result=await worker.run('receive',{rows:[{...remote,conflictPolicy:'skip'}],cache,home,cwd:root,options:{perRow:true}},e=>events.push(e));assert.equal(result.results[0].status,'conflict');assert.ok(events.some(e=>e.stage==='扫描本机对话'));assert.equal((await c.scan(home)).sessions.length,1);
+ const branched=await worker.run('receive',{rows:[{...remote,conflictPolicy:'keep-both'}],cache,home,cwd:root,options:{perRow:true}},e=>events.push(e));assert.equal(branched.results[0].status,'branched');assert.ok(events.some(e=>e.stage==='写入对话'));
+ const scanned=await worker.run('scan',{home});assert.equal(scanned.sessions.length,2);assert.equal(scanned.sessions[0].raw,undefined);assert.equal(scanned.sessions[0].messages.length,0);
+});

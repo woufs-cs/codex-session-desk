@@ -38,3 +38,16 @@ test('membership conflict and unsupported native project APIs stop before mutati
   const f=fake({membership:'other'});await assert.rejects(sync.reconcile(f.request,settings,rows),/归属冲突/);assert.equal(f.methods.includes('thread/metadata/update'),false);assert.equal(f.count(),0);
   const g=fake({unsupported:true});await assert.rejects(sync.reconcile(g.request,settings,rows),/Unsupported/);assert.equal(g.methods.includes('thread/resume'),false);
 });
+
+test('readable thread with mismatched cwd preserves actual and expected directories',async()=>{
+ const request=async(method)=>{if(method==='thread/list')return {data:[]};if(method==='thread/read')return {thread:{id:'t',cwd:'D:/wrong'}};throw Error('Unexpected mutation '+method);};
+ const result=await sync.reconcile(request,{mode:'cli'},[{id:'t',targetCwd:'D:/expected'}]);assert.equal(result.complete,false);assert.equal(result.results[0].readable,true);assert.equal(result.results[0].pathMatches,false);assert.equal(result.results[0].cwd,'D:/wrong');assert.equal(result.results[0].expectedCwd,'D:/expected');
+});
+
+test('large native discovery failures never resume a full history into memory',async()=>{
+ const calls=[];const request=async(method)=>{calls.push(method);if(method==='thread/list')return {data:[]};throw Error('Not yet indexed');};const result=await sync.reconcile(request,{mode:'cli'},[{id:'t',targetCwd:'D:/B',bytes:138*1024*1024}]);assert.equal(result.complete,false);assert.equal(calls.includes('thread/resume'),false);assert.match(result.results[0].error,/未自动 resume/);
+});
+
+test('readable and correctly located thread still remains pending on title failure',async()=>{
+ const request=async(method)=>{if(method==='thread/list')return {data:[]};if(method==='thread/read')return {thread:{id:'t',cwd:'D:/B'}};throw Error('name update failed');};const result=await sync.reconcile(request,{mode:'cli'},[{id:'t',targetCwd:'D:/B',targetName:'Name'}]);assert.equal(result.results[0].readable,true);assert.equal(result.results[0].pathMatches,true);assert.equal(result.complete,false);
+});

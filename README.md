@@ -23,11 +23,11 @@
 
 ## 下载与启动
 
-当前版本 **0.15.4**：修复单条会话记录中内嵌图片超过 8 MB 时无法扫描、比较或恢复的问题。图片通过文件流处理，完整保留；单条 138 MB 合成图片记录的完整同步测试峰值约 92 MB。详见 [验证记录](docs/memory-validation.md)。
+当前版本 **0.15.5**：接收时可选择自动关闭／重新打开 Codex，冲突逐条确认，显示阶段进度与目录诊断；文件处理移入独立工作线程，列表分页显示。单条 138 MB 合成图片记录的工作线程接收测试峰值约 125 MB。详见 [验证记录](docs/memory-validation.md)。
 
-- [下载 0.15.4 Setup 安装版（推荐）](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.4/SessionDesk-0.15.4-Setup-win-x64.exe)
-- [下载 0.15.4 ZIP 版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.4/SessionDesk-0.15.4-win-x64.zip)
-- [SHA-256 校验文件](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.4/SHA256SUMS-0.15.4.txt)
+- [下载 0.15.5 Setup 安装版（推荐）](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.5/SessionDesk-0.15.5-Setup-win-x64.exe)
+- [下载 0.15.5 ZIP 版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.5/SessionDesk-0.15.5-win-x64.zip)
+- [SHA-256 校验文件](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.5/SHA256SUMS-0.15.5.txt)
 
 另一台电脑升级时，先退出 Session Desk，运行 Setup，沿用原来的安装目录和安装范围（当前用户／所有用户）。所有用户安装需要 Windows 管理员授权。覆盖升级保留该电脑的配置、同步库连接和项目绑定，无需先卸载。首次安装到另一台电脑时，仍需连接同一个同步库，并为云端项目选择该电脑的本地项目目录。建议两台电脑都更新后，再重新扫描和预览同步。
 
@@ -41,7 +41,7 @@
 
 ### 单文件便携版
 
-0.15.4 提供 Setup 和 ZIP，未提供单文件 portable 附件；本次更新请选择上述安装版或 ZIP。以下说明仅适用于提供 portable 附件的历史版本。
+0.15.5 提供 Setup 和 ZIP，未提供单文件 portable 附件；本次更新请选择上述安装版或 ZIP。以下说明仅适用于提供 portable 附件的历史版本。
 
 也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/latest) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
 
@@ -202,8 +202,16 @@ npm run dist:portable
 
 单个会话及同步对象上限为 256 MB，本地扫描和云端读写使用同一上限。WebDAV 上传、下载允许最多 5 分钟；服务商自身的文件大小限制仍然有效。读取时逐条解析 JSONL，降低工具输出占用的额外内存。项目名称再次点击可收起，再点展开；收起不会清除右侧内容或未保存的勾选。
 
-### 大文件内存控制（0.15.4）
+### 大文件内存控制（0.15.5）
 
 扫描只保留有限预览，发布、下载、比较、备份和恢复通过文件流执行，不同时加载所有会话原文。单文件上限 256 MB。内嵌 Base64 图片（`data:image/...;base64,`）通过摘要与文件区间处理，单条记录的图片数据可超过 8 MB，恢复时分块复制原始图片，不截断或删除。除图片外的单条 JSONL 内容仍有 8 MB 安全解析上限；超限会停止并保留原文件。界面预览最多每条会话 64K 字符／200 条消息，整个扫描的预览预算 4M 字符；预览截断不影响完整同步。原生验证优先读取元数据，Codex 返回超大响应时停止验证并保留恢复报告。
 
 测试与打包分开运行。`npm test` 使用串行测试和 192 MB JavaScript 堆上限，默认大文件样本为 1 MB。维护者可依次运行 `scripts/test-memory.ps1 -SizeMB 8`、`32`、`138`；每次仅一个进程、低优先级，384 MB 工作集或三分钟超限即停止，并要求至少 2 GB 空闲内存。只有前一级通过才运行下一级。打包采用较低压缩等级。上述限制不控制 Codex 本身或网盘客户端的内存。
+
+## 0.15.5 接收流程改进
+
+接收预览中，仅有内容冲突的对话需要逐条选择“保留分叉”或“跳过”，可展开两边有限文本摘要；没有选择的冲突会阻止接收，运行中新增的冲突也会要求重新预览。现阶段不提供直接覆盖冲突版本。接收确认窗口可勾选自动关闭 Codex 桌面端、结束后重新打开；请先结束活动任务。不会强制结束进程，CLI 或无法正常关闭的窗口仍在运行时停止写入；原来未运行的应用不会被自动启动。
+
+接收扫描、比较、准备、备份与写入在独立工作线程串行执行，界面显示阶段和条目进度。预览／结果每次显示 50 条，对话使用本地文字徽标，避免图片与字体图标依赖。目录验证失败会分别保留“可读”和“目录匹配”状态，并显示预期目录和 Codex 实际目录。请先关闭 Codex 后使用“重试验证”；持续不一致时核对目录映射并保留报告，不要删除对话或反复覆盖。
+
+若大对话元数据不可读，不会自动调用会返回完整历史的 resume；已接收文件和备份保留，需在 Codex 中检查发现情况后重试验证。
