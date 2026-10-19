@@ -1,8 +1,8 @@
 const {execFile,spawn}=require('node:child_process'),{promisify}=require('node:util'),fs=require('node:fs/promises'),path=require('node:path');
 const exec=promisify(execFile);
-async function powershell(script){return (await exec('powershell.exe',['-NoProfile','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{windowsHide:true,timeout:30000,maxBuffer:1024*1024})).stdout;}
+async function powershell(script){return (await exec('powershell.exe',['-NoProfile','-EncodedCommand',Buffer.from("$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';\n"+script,'utf16le').toString('base64')],{windowsHide:true,timeout:30000,maxBuffer:1024*1024})).stdout;}
 async function list(){
- const data=await powershell("@(Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(Codex|ChatGPT)\\.exe$' } | Select-Object ProcessId,ExecutablePath,CommandLine) | ConvertTo-Json -Compress");
+ const data=await powershell("@(Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(Codex|ChatGPT)\\.exe$' } | Select-Object ProcessId,ParentProcessId,@{Name='CreationDate';Expression={$_.CreationDate.ToUniversalTime().Ticks.ToString()}},ExecutablePath,CommandLine) | ConvertTo-Json -Compress");
  const rows=JSON.parse(data.trim()||'[]');return Array.isArray(rows)?rows:[rows];
 }
 async function desktopApps(rows){
@@ -20,14 +20,26 @@ public static class DeskClose {public delegate bool C(IntPtr h,IntPtr p);[DllImp
 [DeskClose]::Send(${app.pid})`);
 }
 async function restart(app){await new Promise((resolve,reject)=>{const p=spawn(app.path,[],{detached:true,stdio:'ignore',windowsHide:false});p.once('error',reject);p.once('spawn',()=>{p.unref();resolve();});});}
+function ownedProcesses(rows,apps,before=rows){
+ const ids=new Set(before.filter(r=>apps.some(a=>a.pid===r.ProcessId)).map(r=>r.ProcessId));
+ let changed;do{changed=false;for(const r of [...before,...rows])if(ids.has(r.ParentProcessId)&&!ids.has(r.ProcessId)){ids.add(r.ProcessId);changed=true;}}while(changed);
+ return rows.filter(r=>r.ExecutablePath&&r.CreationDate&&!before.some(b=>b.ProcessId===r.ProcessId&&b.CreationDate&&b.CreationDate!==r.CreationDate)&&(ids.has(r.ProcessId)||apps.some(a=>a.path.toLowerCase()===r.ExecutablePath.toLowerCase()&&/--type=/.test(r.CommandLine||''))));
+}
+async function force(rows){
+ const encoded=Buffer.from(JSON.stringify(rows.map(r=>({id:r.ProcessId,path:r.ExecutablePath,created:r.CreationDate})))).toString('base64');
+ await powershell(`$targets=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'))|ConvertFrom-Json
+foreach($target in $targets){$p=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$target.id);if($p -and $p.ExecutablePath -eq $target.path -and $p.CreationDate.ToUniversalTime().Ticks.ToString() -eq [string]$target.created){Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop}}`);
+}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-async function manage(enabled,action,{onProgress=()=>{},adapter={list,desktopApps,close,restart,sleep},timeout=20000}={}){
+async function manage(enabled,action,{onProgress=()=>{},confirmForce=async()=>false,adapter={list,desktopApps,close,restart,sleep,force},timeout=8000}={}){
  const closed=[];let value,error;try{
   const before=await adapter.list();
   if(enabled){const apps=await adapter.desktopApps(before);for(const app of apps){onProgress({stage:'关闭 Codex',detail:'等待桌面端正常退出；不会强制结束活动任务'});closed.push(app);await adapter.close(app);}
-   const deadline=Date.now()+timeout;while((await adapter.list()).length&&Date.now()<deadline)await adapter.sleep(300);
+   const deadline=Date.now()+timeout;while((await adapter.list()).length&&Date.now()<deadline)await adapter.sleep(500);
+   const remaining=await adapter.list(),owned=ownedProcesses(remaining,apps,before);
+   if(owned.length&&adapter.force&&await confirmForce(owned)){onProgress({stage:'结束残留桌面进程',detail:'只处理已识别的桌面端进程；随后检查是否完全退出'});await adapter.force(owned);const until=Date.now()+5000;while((await adapter.list()).length&&Date.now()<until)await adapter.sleep(500);}
   }
-  if((await adapter.list()).length)throw Error('Codex 尚未完全退出（可能有 CLI、活动任务或未关闭窗口）。本次未写入，请结束任务后重试。');
+  const blockers=await adapter.list();if(blockers.length)throw Error('Codex 尚未完全退出。本次未写入，请结束任务后重试。残留进程：'+blockers.map(r=>`${r.ProcessId} (${r.ExecutablePath||'路径不可读'})`).join('、'));
   value=await action();
  }catch(e){error=e;}finally{
   const remaining=await adapter.list().catch(()=>null);
@@ -35,4 +47,4 @@ async function manage(enabled,action,{onProgress=()=>{},adapter={list,desktopApp
  }
  if(error)throw error;return value;
 }
-module.exports={manage,desktopApps};
+module.exports={manage,desktopApps,ownedProcesses};

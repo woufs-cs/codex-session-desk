@@ -33,7 +33,7 @@ async function apply(rows,cache,home,cwd,{conflicts='keep-both',perRow=false,onP
       const source=path.join(cache,row.hash+'.jsonl'),remote=await io.inspect(source,{previewLimit:0});
       if(remote.digest!==row.hash||remote.id!==row.id)throw Error('暂存内容校验失败');
       const matches=local.sessions.filter(s=>s.id===row.id);if(matches.length>1)throw Error('本机有重复会话 ID，需先处理');
-      const existing=matches[0],status=await io.compare(existing,remote,row.rootMappings||[]);
+      const existing=matches[0]?await io.inspect(matches[0].file,{previewLimit:0}):null,status=await io.compare(existing,remote,row.rootMappings||[]);
       const targetCwd=row.targetCwd||cwd;
       if(!path.isAbsolute(targetCwd)||row.mappingError)throw Error('对话目录尚未映射：'+row.id);
       if(existing&&row.targetCwd&&!require('./project-model.cjs').same(existing.cwd,targetCwd))throw Error('已有对话的目录与映射不同，请先检查：'+row.id);
@@ -49,7 +49,7 @@ async function apply(rows,cache,home,cwd,{conflicts='keep-both',perRow=false,onP
       operations.push({target,content,before:status==='grow'?existing.file:null,beforeHash:status==='grow'?existing.digest:null,afterHash:await io.hashFile(content),id,sourceId:row.id,status:status==='conflict'?'branched':status==='grow'?'updated':'imported'});
     }
     const backup=path.join(home,'session-desk-backups',c.uuid());await safePath(backup);await fs.mkdir(backup,{recursive:true});
-    report={created:new Date().toISOString(),state:'prepared',home,operations:[],results};
+    report={created:new Date().toISOString(),state:'prepared',home,operations:[],results,sessionFiles:Object.fromEntries([...local.sessions.map(s=>[s.id,s.file]),...operations.map(o=>[o.id,o.target])])};
     for(const [i,op]of operations.entries()){onProgress({stage:'备份原对话',current:i,total:operations.length,detail:op.id});
       if(op.before!==null){op.backupFile=path.join(backup,`${i}.jsonl`);await io.copyAtomic(op.before,op.backupFile,{exclusive:true});if(await io.hashFile(op.backupFile)!==op.beforeHash)throw Error('目标在备份期间变化，停止恢复');}
       report.operations.push({target:op.target,id:op.id,sourceId:op.sourceId,status:op.status,beforeHash:op.beforeHash,afterHash:op.afterHash,backup:op.before===null?null:`${i}.jsonl`});
@@ -76,4 +76,4 @@ async function apply(rows,cache,home,cwd,{conflicts='keep-both',perRow=false,onP
     return {...report,reportPath:journal};
   }finally{try{if(prepared)await fs.rm(prepared,{recursive:true,force:true});}finally{await handle.close();await fs.unlink(lock);}}
 }
-module.exports={apply,mapped,branchId};
+module.exports={apply,mapped,branchId,safePath};

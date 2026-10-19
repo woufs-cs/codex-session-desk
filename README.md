@@ -23,11 +23,11 @@
 
 ## 下载与启动
 
-当前版本 **0.15.5**：接收时可选择自动关闭／重新打开 Codex，冲突逐条确认，显示阶段进度与目录诊断；文件处理移入独立工作线程，列表分页显示。单条 138 MB 合成图片记录的工作线程接收测试峰值约 125 MB。详见 [验证记录](docs/memory-validation.md)。
+当前版本 **0.15.6**：新增失败对话的单条目录修复、预期与实际目录诊断，改善 Codex 退出及重启流程，并用元数据缓存、按需预览和定点验证减少重复扫描。138 MB 合成图片接收测试工作集峰值约 127 MB。详见 [验证记录](docs/memory-validation.md)。
 
-- [下载 0.15.5 Setup 安装版（推荐）](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.5/SessionDesk-0.15.5-Setup-win-x64.exe)
-- [下载 0.15.5 ZIP 版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.5/SessionDesk-0.15.5-win-x64.zip)
-- [SHA-256 校验文件](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.5/SHA256SUMS-0.15.5.txt)
+- [下载 0.15.6 Setup 安装版（推荐）](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.6/SessionDesk-0.15.6-Setup-win-x64.exe)
+- [下载 0.15.6 ZIP 版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.6/SessionDesk-0.15.6-win-x64.zip)
+- [SHA-256 校验文件](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.6/SHA256SUMS-0.15.6.txt)
 
 另一台电脑升级时，先退出 Session Desk，运行 Setup，沿用原来的安装目录和安装范围（当前用户／所有用户）。所有用户安装需要 Windows 管理员授权。覆盖升级保留该电脑的配置、同步库连接和项目绑定，无需先卸载。首次安装到另一台电脑时，仍需连接同一个同步库，并为云端项目选择该电脑的本地项目目录。建议两台电脑都更新后，再重新扫描和预览同步。
 
@@ -41,7 +41,7 @@
 
 ### 单文件便携版
 
-0.15.5 提供 Setup 和 ZIP，未提供单文件 portable 附件；本次更新请选择上述安装版或 ZIP。以下说明仅适用于提供 portable 附件的历史版本。
+0.15.6 提供 Setup 和 ZIP，未提供单文件 portable 附件；本次更新请选择上述安装版或 ZIP。以下说明仅适用于提供 portable 附件的历史版本。
 
 也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/latest) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
 
@@ -215,3 +215,14 @@ npm run dist:portable
 接收扫描、比较、准备、备份与写入在独立工作线程串行执行，界面显示阶段和条目进度。预览／结果每次显示 50 条，对话使用本地文字徽标，避免图片与字体图标依赖。目录验证失败会分别保留“可读”和“目录匹配”状态，并显示预期目录和 Codex 实际目录。请先关闭 Codex 后使用“重试验证”；持续不一致时核对目录映射并保留报告，不要删除对话或反复覆盖。
 
 若大对话元数据不可读，不会自动调用会返回完整历史的 resume；已接收文件和备份保留，需在 Codex 中检查发现情况后重试验证。
+
+## 0.15.6：单条修复与扫描优化
+
+- 云端 → 最近接收记录与单条修复：待处理对话显示预期目录和 Codex 实际目录，点击“修复这一条”并核对目录。只修复所选 ID；其他对话的内容和验证结果保持不变。若预期目录不正确，先返回接收预览修改映射。
+- 修复前需退出 Codex，可勾选自动关闭／重新打开。正常退出失败后，会另行询问是否结束已识别的桌面端残留进程；不会自动结束独立 CLI。拒绝或未关闭完整时停止写入。
+- 会话文件目录已正确、原生索引目录仍旧时，备份后定点修改 `state_5.sqlite` 的 `threads.cwd`，再启动新的 Codex 连接验证目录与项目归属。不删除索引、不修改其他行、不发送消息。仅支持已检查的数据库结构；文件身份、索引路径或旧目录变化会停止。
+- 单条修复备份位于 `<Codex 数据目录>/session-desk-backups/repair-<唯一编号>/`，包含 `original.jsonl` 和 `repair.json`。报告保存修改前的索引目录。验证失败时尝试条件回滚；如回滚失败，保留报告供排查，不重复覆盖。
+- 会话列表只读取元数据，打开对话时才加载有限文本预览；当前进程复用未变化文件的扫描结果（最多 5000 项，只缓存元数据），文件修改后重新读取。应用重启后首次仍需扫描。发布及写入前继续校验涉及文件的内容，缓存不代替写入校验。
+- 新接收报告记录文件位置，接收后验证只检查报告中的会话；旧报告首次需要扫描补全位置。单条修复只重新读取所选文件。
+
+升级后进入“云端 → 最近接收记录与单条修复”，核对预期目录，再点击待处理对话旁的“修复这一条”。若预期目录本身不正确，请先重新预览并修改映射。

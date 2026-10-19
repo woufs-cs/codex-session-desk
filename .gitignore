@@ -20,3 +20,4 @@ scripts/*
 !scripts/test-single-exe.cjs
 
 !scripts/test-memory.ps1
+!scripts/test-repair-native.cjs

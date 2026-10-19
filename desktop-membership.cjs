@@ -32,11 +32,11 @@ function merge(inventory,state,home,sessions=[]){
   }
   return {...inventory,threads:[...threads.values()],warnings:[...(inventory.warnings||[]),...(unresolved?[`${unresolved} 条桌面端关联尚无法对应到可读取的项目或对话。`]:[]),...(ambiguous?[`${ambiguous} 条未明确归属的对话匹配多个项目目录，未自动归入。`]:[])]};
 }
-async function enrich(inventory,home){
+async function enrich(inventory,home,knownSessions){
   let state;
   try{state=JSON.parse(await fs.readFile(path.join(home,'.codex-global-state.json'),'utf8'));}
   catch(e){if(e.code==='ENOENT')state={};else return {...inventory,warnings:['桌面端历史归属记录读取失败，请检查 Codex 数据目录。']};}
-  const {sessions}=await require('./core.cjs').scan(home);
+  const sessions=knownSessions||(await require('./sync-worker.cjs').run('scan',{home})).sessions;
   return merge(inventory,state,home,sessions);
 }
 module.exports={merge,enrich};

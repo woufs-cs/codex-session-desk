@@ -12,6 +12,7 @@ $env:DESK_TEST_IMAGE=if($ImageRecord){'1'}else{'0'}
 $out=Join-Path $root ('test-data\memory-'+$SizeMB+'.log')
 $err=Join-Path $root ('test-data\memory-'+$SizeMB+'.err')
 $p=Start-Process -FilePath $node -ArgumentList @('--max-old-space-size=192','test/large-session.test.cjs') -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+$processHandle=$p.Handle # Keep the process handle until ExitCode is collected (Windows PowerShell 5).
 $p.PriorityClass='BelowNormal'
 $peak=0L
 $deadline=(Get-Date).AddMinutes(3)

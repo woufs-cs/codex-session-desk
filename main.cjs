@@ -66,7 +66,7 @@ app.whenReady().then(async()=>{
   register('undoDesktopMembership',async()=>{const change=state.lastMembershipChange;if(!change||!model.same(change.home,state.home))throw Error('当前数据目录没有可撤销的归属调整');const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('请先连接 Codex');await rpc.withClient(found.path,state.home,request=>require('./desktop-properties.cjs').move(request,{id:change.thread.id,targetProjectId:change.thread.nativeProjectId||null,expectedNativeProjectId:change.targetProjectId}));const inventory=await rpc.inventory(found.path,state.home),thread=inventory.threads.find(t=>t.id===change.thread.id);if((thread?.projectId||null)!==(change.thread.projectId||null))throw Error('原生归属已撤销，但显示归属发生变化，请刷新核对');for(const [k,p]of Object.entries(state.desktopProjects))if(JSON.parse(k)[0]===model.canonical(state.home)&&p.sourceProjectId!==thread?.projectId)p.threadIds=p.threadIds.filter(id=>id!==change.thread.id);state.lastMembershipChange=null;plan=[];planProject=null;await save();return '已撤销最近一条归属调整；请重新确认参与同步的对话。';});
   register('desktopWorkspace',async()=>{
     const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('尚未找到 Codex 连接程序。请打开连接设置，检测或选择 codex.exe。');
-    state.codexPath=found.path;const inventory=await rpc.inventory(found.path,state.home),scanned=await core.scan(state.home);sessions=scanned.sessions;
+    state.codexPath=found.path;const inventory=await rpc.inventory(found.path,state.home),scanned=await require('./sync-worker.cjs').run('scan',{home:state.home},progress);sessions=scanned.sessions;
     await save();return {home:state.home,projects:inventory.projects,threads:inventory.threads.map(t=>{const s=sessions.find(s=>s.id===t.id);return {...t,title:t.title||s?.title||'未命名对话',messages:s?.messages||[],updated:s?.updated||'',messageCount:s?.messageCount||s?.messages.length||0,previewTruncated:!!s?.previewTruncated,available:!!s};}),unassigned:inventory.threads.filter(t=>!t.projectId).length,warnings:[...scanned.warnings,...(inventory.warnings||[])]};
   });
   register('desktopStatus',async()=>{const found=await require('./codex-cli.cjs').detect(state.codexPath);if(found){state.codexPath=found.path;await save();}return {runtime:found?found.version:'尚未找到连接程序',preferences:preferences()};});
@@ -87,7 +87,7 @@ app.whenReady().then(async()=>{
   register('inspectCodexProjects',async(target=false)=>{const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('未找到 Codex 连接程序，请在连接设置中选择 codex.exe');state.codexPath=found.path;await save();return rpc.inventory(found.path,target?(state.restoreHome||state.home):state.home);});
   register('saveConversationProject',async(ref,options)=>{
     if(ref!=='codex:'+options.sourceProjectId)throw Error('本机项目身份无效');
-    const fresh=await core.scan(state.home);let inventory={projects:[],threads:[]};
+    const fresh=await require('./sync-worker.cjs').run('scan',{home:state.home},progress);let inventory={projects:[],threads:[]};
     if(options.sourceProjectId){const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('请在连接设置选择 Codex 连接程序');inventory=await rpc.inventory(found.path,state.home);}
     const ids=require('./desktop-policy.cjs').validateProfile(options,fresh.sessions,inventory);
     const roots=inventory.projects.find(p=>p.id===options.sourceProjectId)?.roots.map(r=>r.path)||[];
@@ -198,7 +198,7 @@ app.whenReady().then(async()=>{
   register('publishCloudProject',async(config,cwd,options)=>{
     if(!path.isAbsolute(cwd)||!options||(!options.files&&!options.conversations))throw Error('请选择要上传的内容');
     if(options.files&&state.projectModes[cwd.toLowerCase()]==='git')throw Error('Git 项目的代码请通过 Git 推送；云端只上传对话');
-    const fresh=options.conversations?await core.scan(state.home):{sessions:[],warnings:[]};
+    const fresh=options.conversations?await require('./sync-worker.cjs').run('scan',{home:state.home},progress):{sessions:[],warnings:[]};
     core.requireCompleteScan(fresh,state.home,'停止发布');
     const source=options.conversations?await sourceSelection(cwd,fresh):null;
     const chosen=source?.selected||[];
@@ -231,14 +231,14 @@ app.whenReady().then(async()=>{
   register('loadEnv',async()=>{const r=await dialog.showOpenDialog(win,{properties:['openFile'],filters:[{name:'Environment',extensions:['env','local','*']}]});if(r.canceled)return null;const config=core.readEnv(await fs.readFile(r.filePaths[0],'utf8'));new core.Store(config);secret=config.password;secretScope=scope(config);const {password,...plain}=config;return {...plain,hasPassword:true};});
   register('favorite',async id=>{if(!sessions.some(s=>s.id===id))throw Error('会话不存在');state.favorites[id]=!state.favorites[id];await save();return state.favorites[id];});
   register('exportText',async id=>{const s=sessions.find(s=>s.id===id);if(!s)throw Error('会话不存在');if(s.previewTruncated)throw Error('此对话仅加载了部分预览，请在 Codex 中查看完整内容；未导出截断文本');const r=await dialog.showSaveDialog(win,{defaultPath:`session-${s.id}.md`,filters:[{name:'Markdown',extensions:['md']}]});if(r.canceled)return '已取消';await core.atomic(r.filePath,`# ${s.title}\n\n`+s.messages.map(m=>`## ${m.role}\n\n${m.text}`).join('\n\n'));return '已导出 Markdown';});
-  register('scan',async()=>{const result=await core.scan(state.home);sessions=result.sessions;return {home:state.home,warnings:result.warnings,sessions:sessions.map(({raw,file,...s})=>({...s,favorite:!!state.favorites[s.id]})),bindings:state.bindings,localProjects:state.localProjects,conversationProjects:Object.fromEntries(Object.entries(state.conversationProjects).filter(([k])=>JSON.parse(k)[0]===state.home).map(([k,v])=>[JSON.parse(k)[1],v]))};});
+  register('scan',async()=>{const result=await require('./sync-worker.cjs').run('scan',{home:state.home},progress);sessions=result.sessions;return {home:state.home,warnings:result.warnings,sessions:sessions.map(({raw,file,...s})=>({...s,favorite:!!state.favorites[s.id]})),bindings:state.bindings,localProjects:state.localProjects,conversationProjects:Object.fromEntries(Object.entries(state.conversationProjects).filter(([k])=>JSON.parse(k)[0]===state.home).map(([k,v])=>[JSON.parse(k)[1],v]))};});
   register('choose',async(_kind)=>{filePlan=null;const r=await dialog.showOpenDialog(win,{properties:['openDirectory']});return r.canceled?null:r.filePaths[0];});
   register('home',async p=>{if(typeof p!=='string'||!path.isAbsolute(p))throw Error('目录无效');state.home=p;plan=[];planProject=null;await save();});
   register('test',async config=>{const projects=await core.initializeLibrary(storage(config));await projects.test();return '云盘连接成功，应用同步目录已自动创建';});
   register('publish',async(config,cwd,name,consent,includeFiles=false)=>{
     if(consent!==true)throw Error('请确认完整会话上传授权');
     // Refresh before capture; partial JSONL causes parse failure rather than truncation.
-    const fresh=await core.scan(state.home);
+    const fresh=await require('./sync-worker.cjs').run('scan',{home:state.home},progress);
     core.requireCompleteScan(fresh,state.home,'停止发布');
     const source=await sourceSelection(cwd,fresh),selected=source.selected;
     let files;
@@ -288,6 +288,23 @@ app.whenReady().then(async()=>{
     planProject={config,id:commit.projectId,commitId:id,localRef,cwd,home,definition,mapping,settings,legacy:!commit.definition};return plan;
   });
   async function requireStopped(){const {stdout}=await promisify(execFile)('tasklist.exe',['/FO','CSV','/NH']);if(/^"(?:ChatGPT|Codex|codex)\.exe"/mi.test(stdout))throw Error('请先完全退出 Codex 桌面端和 CLI，再接收或验证');}
+  register('threadPreview',async id=>{const session=sessions.find(s=>s.id===id);if(!session)throw Error('请刷新本机项目列表');const result=await require('./sync-worker.cjs').run('inspect',{file:session.file},progress);if(result.id!==id)throw Error('会话文件已变化，请刷新');return {messages:result.messages,messageCount:result.messageCount,previewTruncated:result.previewTruncated};});
+  async function confirmForce(rows){return (await dialog.showMessageBox(win,{type:'warning',buttons:['取消本次接收','结束这些残留进程'],defaultId:0,cancelId:0,message:'Codex 桌面端没有完全退出',detail:'请确认没有正在进行的任务。强制结束可能丢失尚未保存的内容。只结束下面识别到的桌面端及子进程；独立 CLI 不会自动关闭。\n'+rows.map(r=>r.ProcessId+' · '+r.ExecutablePath).join('\n')})).response===1;}
+  register('repairRecoveryThread',async id=>{
+    if(!lastRecovery?.projectSettings||!desktopState.get(state,lastRecovery.localRef,lastRecovery.sourceHome||state.home))throw Error('恢复记录未关联到本机项目，请重新预览');
+    const row=lastRecovery.verification?.results?.find(r=>r.id===id);if(!row)throw Error('对话不在当前恢复报告中');
+    const expected=lastRecovery.expectedDirectories?.[id];if(!expected||!(await fs.stat(expected).catch(()=>null))?.isDirectory())throw Error('预期工作目录不存在，请先检查目录映射');
+    const answer=await dialog.showMessageBox(win,{type:'question',buttons:['取消','备份并修复这一条'],defaultId:0,cancelId:0,checkboxLabel:'自动关闭 Codex，修复后重新打开',checkboxChecked:false,message:'修复这条对话的工作目录和项目归属？',detail:(lastRecovery.expectedTitles?.[id]||id)+'\n'+id+'\nCodex 实际目录：'+(row.cwd||'未读取')+'\n预期目录：'+expected+'\n只处理这一条。保留对话 ID 和历史，先备份，仅修正这一条原生索引中的目录，再通过 Codex 接口验证归属；不会发送新消息。'});if(!answer.response)return '已取消';
+    return require('./codex-lifecycle.cjs').manage(answer.checkboxChecked,async()=>{
+      await requireStopped();const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('请到设置选择 Codex CLI');
+      const repaired=await require('./project-sync.cjs').repair(found.path,lastRecovery,id,progress);
+      const previous=lastRecovery.verification;previous.results=previous.results.map(r=>r.id===id?repaired.results[0]:r);previous.complete=previous.results.every(r=>!r.error&&r.readable&&r.pathMatches&&(previous.mode!=='desktop'||r.membership));delete previous.error;
+      lastRecovery.repairs||=[];lastRecovery.repairs.push({id,reportPath:repaired.repairReport});state.lastRecovery=lastRecovery;
+      const profile=desktopState.get(state,lastRecovery.localRef,lastRecovery.sourceHome||state.home);if(repaired.complete&&profile&&model.same(lastRecovery.home,lastRecovery.sourceHome||state.home))profile.threadIds=[...new Set([...profile.threadIds,id])];
+      await save();await core.atomic(lastRecovery.reportPath,JSON.stringify(lastRecovery,null,2));
+      return (repaired.complete?'这条对话已修复并通过验证；其他对话未改动。':'这条对话仍待处理，请查看实际目录和错误。')+' 修复备份：'+repaired.repairReport;
+    },{onProgress:progress,confirmForce});
+  });
   async function completeRecovery(found){
     if(!lastRecovery.localRef||!desktopState.get(state,lastRecovery.localRef,lastRecovery.sourceHome||state.home))throw Error('恢复记录未能唯一关联到本机项目，请重新接入云端项目并预览；原始备份保持不变');
     try{
@@ -312,11 +329,11 @@ app.whenReady().then(async()=>{
     const expectedNames={};for(const r of result.results){const row=sourceRow(r);if(row?.remoteName&&(row.namePolicy==='remote'||r.sourceId||r.id!==row.id)&&r.status!=='conflict')expectedNames[r.id]=row.remoteName;}
     lastRecovery={...result,expectedNames,expectedTitles:Object.fromEntries(result.results.map(r=>[r.id,sourceRow(r)?.title||r.id])),localRef:planProject.localRef,cwd:planProject.cwd,sourceHome:state.home,expectedDirectories:Object.fromEntries(result.results.map(r=>[r.id,sourceRow(r)?.targetCwd])),projectSettings:planProject.settings};state.lastRecovery=lastRecovery;await save();await core.atomic(lastRecovery.reportPath,JSON.stringify(lastRecovery,null,2));plan=[];planProject=null;
     return completeRecovery(found);
-    },{onProgress:progress});
+    },{onProgress:progress,confirmForce});
   });
   register('cache',async()=>{const p=path.join(app.getPath('userData'),'staging');await fs.mkdir(p,{recursive:true});await shell.openPath(p);});
   register('recoveryStatus',async()=>lastRecovery?{home:lastRecovery.home,cwd:lastRecovery.cwd,reportPath:lastRecovery.reportPath,verification:lastRecovery.verification,results:lastRecovery.results,expectedTitles:lastRecovery.expectedTitles}:null);
-  register('verifyRecovery',async()=>{if(!lastRecovery?.projectSettings)throw Error('旧恢复记录没有项目映射，请重新比较并接收');const answer=await dialog.showMessageBox(win,{type:'question',buttons:['取消','重试验证'],defaultId:0,cancelId:0,checkboxLabel:'自动关闭 Codex 桌面端，验证后重新打开',checkboxChecked:false,message:'重新验证已接收的对话？',detail:'不会重复导入或覆盖对话。请先结束活动任务。'});if(!answer.response)return '已取消';return require('./codex-lifecycle.cjs').manage(answer.checkboxChecked,async()=>{await requireStopped();const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('请到设置选择 Codex CLI');return completeRecovery(found);},{onProgress:progress});});
+  register('verifyRecovery',async()=>{if(!lastRecovery?.projectSettings)throw Error('旧恢复记录没有项目映射，请重新比较并接收');const answer=await dialog.showMessageBox(win,{type:'question',buttons:['取消','重试验证'],defaultId:0,cancelId:0,checkboxLabel:'自动关闭 Codex 桌面端，验证后重新打开',checkboxChecked:false,message:'重新验证已接收的对话？',detail:'不会重复导入或覆盖对话。请先结束活动任务。'});if(!answer.response)return '已取消';return require('./codex-lifecycle.cjs').manage(answer.checkboxChecked,async()=>{await requireStopped();const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('请到设置选择 Codex CLI');return completeRecovery(found);},{onProgress:progress,confirmForce});});
   win=new BrowserWindow({width:1440,height:940,minWidth:1100,minHeight:760,backgroundColor:'#f6f7f9',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   win.webContents.on('will-navigate',e=>e.preventDefault());

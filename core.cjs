@@ -33,12 +33,19 @@ function parse(raw, file='') {
   const title=messages.find(m=>m.role==='user' && !m.text.startsWith('<') && !m.text.startsWith('# AGENTS'))?.text.slice(0,100) || '未命名会话';
   return {id:meta.id || meta.session_id,cwd:meta.cwd || '',title,messages,file,archived:file.split(path.sep).includes('archived_sessions'),subagent:JSON.stringify(meta.source || '').includes('subagent'),updated:last?.timestamp || '',raw};
 }
+const scanCache=new Map();
+function seedScanCache(entries){for(const [key,value] of entries||[])scanCache.set(key,value);while(scanCache.size>5000)scanCache.delete(scanCache.keys().next().value);}
+function exportScanCache(){return [...scanCache].slice(-5000);}
 async function scan(home,{previewLimit=64*1024,onProgress=()=>{}}={}) {
   const sessions=[],warnings=[];let retained=0,previewBudget=4*1024*1024;
   const files=[...await walk(path.join(home,'sessions')),...await walk(path.join(home,'archived_sessions'))];let scanned=0;for(const file of files) {onProgress({stage:'扫描本机对话',current:scanned++,total:files.length,detail:path.basename(file)});
     for(let attempt=0;attempt<2;attempt++){
       try {const stat=await fs.stat(file); if(stat.size>MAX_SESSION_BYTES) {warnings.push(`${path.relative(home,file)}：大小 ${(stat.size/1048576).toFixed(1)} MB，超过当前 256 MB 读取限制`);break;}
-        const session=await io.inspect(file,{previewLimit:Math.min(previewLimit,previewBudget)});session.bytes=stat.size;previewBudget-=session.messages.reduce((n,m)=>n+m.text.length,0);if(previewLimit>0&&stat.size<=256*1024&&retained+stat.size<=4*1024*1024){session.raw=await fs.readFile(file,'utf8');retained+=stat.size;}sessions.push(session);break;
+        const signature=[stat.size,stat.mtimeMs,stat.ctimeMs,stat.ino].join(':'),cached=scanCache.get(file);
+        const session=previewLimit===0&&cached?.signature===signature?structuredClone(cached.session):await io.inspect(file,{previewLimit:Math.min(previewLimit,previewBudget)});
+        const after=await fs.stat(file);if([after.size,after.mtimeMs,after.ctimeMs,after.ino].join(':')!==signature)throw Error('文件正在变化，请结束对话后刷新');
+        session.bytes=stat.size;scanCache.set(file,{signature,session:{...session,messages:[],raw:undefined}});if(scanCache.size>5000)scanCache.delete(scanCache.keys().next().value);
+        previewBudget-=session.messages.reduce((n,m)=>n+m.text.length,0);if(previewLimit>0&&stat.size<=256*1024&&retained+stat.size<=4*1024*1024){session.raw=await fs.readFile(file,'utf8');retained+=stat.size;}sessions.push(session);break;
       }catch(e){
         if(!attempt){await new Promise(resolve=>setTimeout(resolve,200));continue;}
         const reason=['EACCES','EPERM'].includes(e.code)?'访问被拒绝，请检查文件权限':e.code==='ENOENT'?'文件已移动或删除，请刷新后重试':e.code?`读取失败（${e.code}）`:e.message;
@@ -271,4 +278,4 @@ async function discoverProjects(store) {
   return result.sort((a,b)=>require('./time-format.js').newest(a,b));
 }
 function projectStore(store,commit){return commit.library?store.child('SessionDesk').child('projects').child('p-'+commit.projectId):store;}
-Object.assign(module.exports,{initializeLibrary,publishProject,discoverProjects,projectStore});
+Object.assign(module.exports,{initializeLibrary,publishProject,discoverProjects,projectStore,seedScanCache,exportScanCache});
