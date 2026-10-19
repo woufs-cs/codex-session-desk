@@ -15,7 +15,10 @@ async function walk(dir) {
   return result;
 }
 function parse(raw, file='') {
-  const records = raw.split(/\r?\n/).filter(Boolean).map(l=>JSON.parse(l));
+  const records = raw.split(/\r?\n/).flatMap((line,index)=>{
+    if(!line)return [];
+    try{return [JSON.parse(line)];}catch{throw Error(`第 ${index+1} 行不是完整有效的 JSON${index===0&&line.charCodeAt(0)===0xfeff?'（文件带 UTF-8 BOM，可能来自旧脚本）':'（可能被截断或正在写入）'}`);}
+  });
   const meta = records.find(r=>r.type==='session_meta')?.payload;
   if(!meta || !validId(meta.id || meta.session_id)) throw Error('无法识别会话格式');
   const messages = [];
@@ -32,12 +35,22 @@ function parse(raw, file='') {
 async function scan(home) {
   const sessions=[],warnings=[];
   for(const file of [...await walk(path.join(home,'sessions')),...await walk(path.join(home,'archived_sessions'))]) {
-    try {const stat=await fs.stat(file); if(stat.size>64*1024*1024) {warnings.push(`${path.basename(file)} 超过 64 MB，已跳过`); continue;}
-      sessions.push(parse(await fs.readFile(file,'utf8'),file));
-    }catch(e){warnings.push(`${path.basename(file)}: ${e.message}`);}
+    for(let attempt=0;attempt<2;attempt++){
+      try {const stat=await fs.stat(file); if(stat.size>64*1024*1024) {warnings.push(`${path.relative(home,file)}：大小 ${(stat.size/1048576).toFixed(1)} MB，超过当前 64 MB 读取限制`);break;}
+        sessions.push(parse(await fs.readFile(file,'utf8'),file));break;
+      }catch(e){
+        if(!attempt){await new Promise(resolve=>setTimeout(resolve,200));continue;}
+        const reason=['EACCES','EPERM'].includes(e.code)?'访问被拒绝，请检查文件权限':e.code==='ENOENT'?'文件已移动或删除，请刷新后重试':e.code?`读取失败（${e.code}）`:e.message;
+        warnings.push(`${path.relative(home,file)}：${reason}`);
+      }
+    }
   }
   sessions.sort((a,b)=>require('./time-format.js').timestamp(b.updated)-require('./time-format.js').timestamp(a.updated));
   return {sessions,warnings};
+}
+function requireCompleteScan(result,home,action){
+  if(!result.warnings.length)return;
+  throw Error(`${action}：${result.warnings.length} 个会话文件读取异常。\n检查目录：${home}\n${result.warnings.slice(0,12).map(w=>'• '+w).join('\n')}${result.warnings.length>12?'\n（仅显示前 12 项）':''}\n请完全退出 Codex，确认文件已下载到本机，再重试。若仍失败，请复制上述文件名和原因；不要删除或覆盖原始对话。`);
 }
 function mapRecord(r,cwd,rootMappings=[]){
   const m=require('./project-model.cjs');
@@ -190,7 +203,7 @@ function readEnv(text) {
 }
 async function restoreNew(rows,cache,home,cwd) {
   if(!path.isAbsolute(home)||!path.isAbsolute(cwd))throw Error('恢复目录必须为绝对路径');
-  const existing=await scan(home);if(existing.warnings.length)throw Error('目标目录有无法读取的会话，停止恢复');
+  const existing=await scan(home);requireCompleteScan(existing,home,'停止恢复');
   const ids=new Set(existing.sessions.map(s=>s.id)),results=[];
   const dir=path.join(home,'sessions');
   await fs.mkdir(dir,{recursive:true});
@@ -210,7 +223,7 @@ async function restoreNew(rows,cache,home,cwd) {
   }
   return results;
 }
-module.exports={parse,scan,relation,Store,publish,catalog,download,atomic,uuid,hash,readEnv,restoreNew,mapRecord};
+module.exports={parse,scan,relation,Store,publish,catalog,download,atomic,uuid,hash,readEnv,restoreNew,mapRecord,requireCompleteScan};
 
 // Each project owns an independent folder; immutable commits are the discovery records.
 async function initializeLibrary(store) {

@@ -24,7 +24,7 @@ async function apply(rows,cache,home,cwd,{conflicts='keep-both'}={}){
   const handle=await fs.open(lock,'wx').catch(()=>{throw Error('恢复锁已存在，请检查是否有未完成恢复');});
   let report;
   try{
-    const local=await c.scan(home);if(local.warnings.length)throw Error('目标含无法读取的记录，停止恢复');
+    const local=await c.scan(home);c.requireCompleteScan(local,home,'停止恢复');
     const operations=[],results=[],seen=new Set();
     for(const row of rows){
       if(!/^[a-f0-9]{64}$/.test(row.hash))throw Error('无效校验值');

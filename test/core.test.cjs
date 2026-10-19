@@ -56,3 +56,11 @@ test('WebDAV rejects unusable endpoints with actionable errors before sending cr
  for(const url of ['https://example.org/?a=b','https://example.org/#x'])assert.throws(()=>new Store({type:'webdav',url}),/查询参数/);
  const store=new Store({type:'webdav',url:'  https://dav.jianguoyun.com/dav/  '});assert.equal(store.child('SessionDesk').url,'https://dav.jianguoyun.com/dav/SessionDesk/');
 });
+
+test('scan identifies damaged files and line numbers without exposing message content',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'desk-scan-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const dir=path.join(root,'archived_sessions');await fs.mkdir(dir);const file=path.join(dir,'broken.jsonl'),text=raw('broken')+'{"private":"DO_NOT_EXPOSE';await fs.writeFile(file,text);const c=require('../core.cjs'),result=await c.scan(root);assert.equal(result.warnings.length,1);assert.match(result.warnings[0],/broken.jsonl/);assert.match(result.warnings[0],/第 3 行/);assert.ok(!result.warnings[0].includes('DO_NOT_EXPOSE'));assert.throws(()=>c.requireCompleteScan(result,root,'停止比较'),e=>e.message.includes(root)&&e.message.includes('broken.jsonl'));assert.equal(await fs.readFile(file,'utf8'),text);
+});
+test('scan retries incomplete writes and recognizes over-limit files without loading them',async t=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'desk-retry-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const dir=path.join(root,'sessions');await fs.mkdir(dir);const file=path.join(dir,'active.jsonl');await fs.writeFile(file,'{');const original=fs.readFile;let reads=0;fs.readFile=async(...args)=>{if(args[0]===file&&++reads===2)await fs.writeFile(file,raw('active'));return original(...args);};t.after(()=>{fs.readFile=original;});const c=require('../core.cjs'),result=await c.scan(root);assert.equal(result.warnings.length,0);assert.equal(result.sessions.length,1);assert.equal(reads,2);fs.readFile=original;
+ const big=path.join(dir,'large.jsonl');await fs.writeFile(big,'');await fs.truncate(big,65*1048576);const oversized=await c.scan(root);assert.match(oversized.warnings[0],/large.jsonl.*65.0 MB.*64 MB/);assert.throws(()=>c.requireCompleteScan(oversized,root,'停止比较'),/large.jsonl/);
+});

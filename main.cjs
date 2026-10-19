@@ -196,7 +196,7 @@ app.whenReady().then(async()=>{
     if(!path.isAbsolute(cwd)||!options||(!options.files&&!options.conversations))throw Error('请选择要上传的内容');
     if(options.files&&state.projectModes[cwd.toLowerCase()]==='git')throw Error('Git 项目的代码请通过 Git 推送；云端只上传对话');
     const fresh=options.conversations?await core.scan(state.home):{sessions:[],warnings:[]};
-    if(fresh.warnings.length)throw Error('会话读取有异常，请先检查本地扫描提示');
+    core.requireCompleteScan(fresh,state.home,'停止发布');
     const source=options.conversations?await sourceSelection(cwd,fresh):null;
     const chosen=source?.selected||[];
     let fileLink=state.projectModes[cwd.toLowerCase()]!=='git'?state.directProjects[bindingKey(config,cwd)]:undefined;
@@ -236,7 +236,7 @@ app.whenReady().then(async()=>{
     if(consent!==true)throw Error('请确认完整会话上传授权');
     // Refresh before capture; partial JSONL causes parse failure rather than truncation.
     const fresh=await core.scan(state.home);
-    if(fresh.warnings.length)throw Error('存在未完整读取的会话，请检查扫描提示后重试');
+    core.requireCompleteScan(fresh,state.home,'停止发布');
     const source=await sourceSelection(cwd,fresh),selected=source.selected;
     let files;
     if(includeFiles&&state.projectModes[cwd.toLowerCase()]==='git')throw Error('Git 项目的文件请通过提交和推送同步');
@@ -274,7 +274,7 @@ app.whenReady().then(async()=>{
     const localRef=desktopBinding(config,commit.projectId),profile=profileFor(localRef),cwd=profile?.cwd;if(!cwd)throw Error('请先关联本机项目');
     if(!profile||profile.mode!=='desktop')throw Error('请先设置本机目录和目标 Codex 项目');
     const home=state.restoreHome||state.home,fresh=await core.scan(home);
-    if(fresh.warnings.length)throw Error('目标对话有读取异常，停止比较');
+    core.requireCompleteScan(fresh,home,'停止比较');
     const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('请先连接 Codex');const targetInventory=await rpc.inventory(found.path,home);
     const rows=await core.download(core.projectStore(storage(config),commit),commit,fresh.sessions,path.join(app.getPath('userData'),'staging'));
     const definition=commit.definition||model.define(commit.name,rows[0]?.sourceCwd||cwd,[],rows.map(r=>({cwd:r.sourceCwd})));
