@@ -23,10 +23,16 @@
 
 ## 下载与启动
 
-1. 从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/latest) 下载 `SessionDesk-版本-win-x64.zip`。
-2. 解压整个 ZIP，保留目录内的 DLL、resources、locales 等文件。
-3. 启动 `SessionDesk.exe`。不能只复制 EXE 单文件。
-4. 在“连接设置”检测 Codex 连接程序；检测失败时手动选择 `codex.exe`。
+推荐从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/latest) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
+
+1. 将这个 EXE 放到任意可写位置，例如 D 盘工具目录，双击即可启动。
+2. 无需安装、无需手动解压，不需要把 DLL 或 resources 文件夹放在旁边。
+3. 首次启动需要自动解压运行依赖，请等待应用窗口出现；使用临时目录，因此需留有足够磁盘空间。正常退出后清理本次运行的临时文件。
+4. 在“连接设置”检测 Codex 连接程序；检测失败时手动选择 `codex.exe`。便携版包含应用运行环境，但不捆绑 Codex 连接程序。
+
+原来的 ZIP 版继续保留：下载 `SessionDesk-版本-win-x64.zip` 后完整解压，运行文件夹里的 `SessionDesk.exe`。**ZIP 内的 EXE 不能单独复制使用**；文件名带 `portable` 的下载附件才是单文件版。
+
+两种格式共享同一 Windows 用户下的应用设置。切换格式或更新时先退出旧版，不要同时运行两份。更新时下载新版 EXE 并替换旧文件即可；设置和对话不在 EXE 内，也不会跟随 EXE 自动复制到另一台机器。另一台机器仍需设置自己的连接与项目映射。
 
 便携包包含 Electron，不需要自行安装 Node.js。发布包尚未代码签名。应用不提供账号服务；WebDAV 账号与 Codex 登录由你自己的服务管理。
 
@@ -122,12 +128,15 @@ npm start
 npm test
 node scripts/test-project-native.cjs
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1
+npm run dist:portable
 ```
 
 - `npm test`：本地合成数据测试，不需要 WebDAV 账号。
 - 原生测试：需要可检测的 Codex 连接程序，在 `test-data` 中创建隔离环境，不使用真实对话或调用模型。
 - `smoke-desktop.cjs`：Electron 界面流程测试，使用合成项目和模拟接口。
-- 打包：输出到 `dist`；同版本输出已存在时停止，防止覆盖历史包。
+- `node scripts/test-single-exe.cjs`：启动真实单文件 EXE，在隔离设置目录验证界面、数据位置及退出后的临时运行文件清理，不使用真实对话。
+- ZIP 打包：输出到 `dist`；同版本输出已存在时停止，防止覆盖历史包。
+- 单文件打包：`npm run dist:portable` 先检查当前版本的已打包内容，再用 electron-builder / NSIS portable 生成 `dist/single-exe` 中的 EXE。仅封装白名单内的应用文件，拒绝不一致或含私有数据的输入。首次构建需要联网下载构建工具；用户运行成品无需下载 Electron。
 
 ### 代码入口
 

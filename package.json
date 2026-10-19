@@ -8,10 +8,12 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
-    "check": "node --check core.cjs && node --check main.cjs && node --check desktop-ui.js"
+    "check": "node --check core.cjs && node --check main.cjs && node --check desktop-ui.js",
+    "dist:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-single-exe.ps1"
   },
   "devDependencies": {
-    "electron": "^41.0.0"
+    "electron": "^41.0.0",
+    "electron-builder": "26.15.3"
   },
   "repository": {
     "type": "git",

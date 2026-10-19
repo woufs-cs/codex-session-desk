@@ -1,0 +1,25 @@
+{
+  "appId": "io.github.woufs-cs.sessiondesk",
+  "productName": "Session Desk",
+  "executableName": "SessionDesk",
+  "directories": {
+    "output": "dist/single-exe"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "portable",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "signAndEditExecutable": false
+  },
+  "portable": {
+    "artifactName": "SessionDesk-${version}-portable-win-x64.exe",
+    "requestExecutionLevel": "user",
+    "unpackDirName": true
+  },
+  "publish": null
+}

@@ -15,3 +15,6 @@ import-records/
 scripts/*
 !scripts/build-portable.ps1
 !scripts/test-project-native.cjs
+
+!scripts/build-single-exe.ps1
+!scripts/test-single-exe.cjs
