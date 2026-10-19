@@ -1,8 +1,10 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const io=require('./session-io.cjs');
 const hash = text => crypto.createHash('sha256').update(text).digest('hex');
 const uuid = () => crypto.randomUUID();
+const MAX_SESSION_BYTES=256*1024*1024;
 const validId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(id);
 async function walk(dir) {
   const result = [];
@@ -15,29 +17,28 @@ async function walk(dir) {
   return result;
 }
 function parse(raw, file='') {
-  const records = raw.split(/\r?\n/).flatMap((line,index)=>{
-    if(!line)return [];
-    try{return [JSON.parse(line)];}catch{throw Error(`第 ${index+1} 行不是完整有效的 JSON${index===0&&line.charCodeAt(0)===0xfeff?'（文件带 UTF-8 BOM，可能来自旧脚本）':'（可能被截断或正在写入）'}`);}
-  });
-  const meta = records.find(r=>r.type==='session_meta')?.payload;
-  if(!meta || !validId(meta.id || meta.session_id)) throw Error('无法识别会话格式');
-  const messages = [];
-  for(const r of records) {
-    const p=r.payload;
-    if(r.type==='response_item' && p?.type==='message' && ['user','assistant'].includes(p.role)) {
+  let meta,last,start=0,lineNumber=0;const messages=[];
+  while(start<raw.length){
+    const newline=raw.indexOf('\n',start),end=newline===-1?raw.length:newline;
+    let line=raw.slice(start,end);if(line.endsWith('\r'))line=line.slice(0,-1);start=end+1;lineNumber++;if(!line)continue;
+    let r;try{r=JSON.parse(line);}catch{throw Error(`第 ${lineNumber} 行不是完整有效的 JSON${lineNumber===1&&line.charCodeAt(0)===0xfeff?'（文件带 UTF-8 BOM，可能来自旧脚本）':'（可能被截断或正在写入）'}`);}
+    if(r?.type==='session_meta'&&!meta)meta=r.payload;last=r;
+    const p=r?.payload;
+    if(r?.type==='response_item' && p?.type==='message' && ['user','assistant'].includes(p.role)) {
       const text=(p.content || []).filter(c=>['input_text','output_text','text'].includes(c.type)).map(c=>c.text || '').join('\n');
       if(text) messages.push({role:p.role,text});
     }
   }
+  if(!meta || !validId(meta.id || meta.session_id)) throw Error('无法识别会话格式');
   const title=messages.find(m=>m.role==='user' && !m.text.startsWith('<') && !m.text.startsWith('# AGENTS'))?.text.slice(0,100) || '未命名会话';
-  return {id:meta.id || meta.session_id,cwd:meta.cwd || '',title,messages,file,archived:file.split(path.sep).includes('archived_sessions'),subagent:JSON.stringify(meta.source || '').includes('subagent'),updated:records.at(-1)?.timestamp || '',raw};
+  return {id:meta.id || meta.session_id,cwd:meta.cwd || '',title,messages,file,archived:file.split(path.sep).includes('archived_sessions'),subagent:JSON.stringify(meta.source || '').includes('subagent'),updated:last?.timestamp || '',raw};
 }
 async function scan(home) {
-  const sessions=[],warnings=[];
+  const sessions=[],warnings=[];let retained=0,previewBudget=4*1024*1024;
   for(const file of [...await walk(path.join(home,'sessions')),...await walk(path.join(home,'archived_sessions'))]) {
     for(let attempt=0;attempt<2;attempt++){
-      try {const stat=await fs.stat(file); if(stat.size>64*1024*1024) {warnings.push(`${path.relative(home,file)}：大小 ${(stat.size/1048576).toFixed(1)} MB，超过当前 64 MB 读取限制`);break;}
-        sessions.push(parse(await fs.readFile(file,'utf8'),file));break;
+      try {const stat=await fs.stat(file); if(stat.size>MAX_SESSION_BYTES) {warnings.push(`${path.relative(home,file)}：大小 ${(stat.size/1048576).toFixed(1)} MB，超过当前 256 MB 读取限制`);break;}
+        const session=await io.inspect(file,{previewLimit:Math.min(64*1024,previewBudget)});previewBudget-=session.messages.reduce((n,m)=>n+m.text.length,0);if(stat.size<=256*1024&&retained+stat.size<=4*1024*1024){session.raw=await fs.readFile(file,'utf8');retained+=stat.size;}sessions.push(session);break;
       }catch(e){
         if(!attempt){await new Promise(resolve=>setTimeout(resolve,200));continue;}
         const reason=['EACCES','EPERM'].includes(e.code)?'访问被拒绝，请检查文件权限':e.code==='ENOENT'?'文件已移动或删除，请刷新后重试':e.code?`读取失败（${e.code}）`:e.message;
@@ -99,10 +100,10 @@ class Store {
       this.url=url.href.replace(/\/+$/,'')+'/';
     } else if(!path.isAbsolute(config.directory || '')) throw Error('请选择绝对路径的同步库目录');
   }
-  async request(key,method='GET',body) {
+  async request(key,method='GET',body,stream=false) {
     const headers={Authorization:'Basic '+Buffer.from(`${this.config.username || ''}:${this.config.password || ''}`).toString('base64')};
     if(method==='PROPFIND') headers.Depth='1';
-    const response=await fetch(this.url+key,{method,body,headers,redirect:'error',signal:AbortSignal.timeout(30000)});
+    const response=await fetch(this.url+key,{method,body,headers,...(stream?{duplex:'half'}:{}),redirect:'error',signal:AbortSignal.timeout(method==='GET'||method==='PUT'?300000:30000)});
     if(!response.ok) {const e=Error(`WebDAV ${method}: HTTP ${response.status}`);e.status=response.status;throw e;}
     return response;
   }
@@ -116,10 +117,29 @@ class Store {
     catch(e){if(e.status!==405)throw e;await this.request('','PROPFIND');}
   }
   async get(key) {
-    if(this.config.type==='webdav') {const r=await this.request(key);const b=await r.text();if(Buffer.byteLength(b)>96*1024*1024) throw Error('远端对象过大');return b;}
-    const f=path.join(this.config.directory,key);if((await fs.stat(f)).size>96*1024*1024) throw Error('远端对象过大');return fs.readFile(f,'utf8');
+    if(this.config.type==='webdav') {
+      const r=await this.request(key),chunks=[];let size=0;
+      if(Number(r.headers.get('content-length'))>4*1024*1024){await r.body?.cancel();throw Error('元数据超过 4 MB 限制，请使用文件流接口读取会话');}
+      if(!r.body)return '';
+      for await(const chunk of r.body){size+=chunk.byteLength;if(size>4*1024*1024)throw Error('元数据超过 4 MB 限制，请使用文件流接口读取会话');chunks.push(Buffer.from(chunk));}
+      return Buffer.concat(chunks,size).toString('utf8');
+    }
+    const f=path.join(this.config.directory,key);if((await fs.stat(f)).size>4*1024*1024) throw Error('元数据超过 4 MB 限制，请使用文件流接口读取会话');return fs.readFile(f,'utf8');
+  }
+  async getFile(key,target) {
+    const temp=target+'.'+uuid()+'.tmp';try{
+      if(this.config.type==='webdav'){const r=await this.request(key);if(Number(r.headers.get('content-length'))>MAX_SESSION_BYTES){await r.body?.cancel();throw Error('远端对象超过 256 MB 限制');}await io.writeChunks(temp,r.body||[]);}
+      else await io.writeChunks(temp,io.chunks(path.join(this.config.directory,key)));
+      await fs.rename(temp,target);
+    }finally{await fs.rm(temp,{force:true});}
+  }
+  async putFile(key,source) {
+    if((await fs.stat(source)).size>MAX_SESSION_BYTES)throw Error('上传对象超过 256 MB 限制');
+    if(this.config.type==='webdav'){const stream=require('node:fs').createReadStream(source,{highWaterMark:65536});try{await this.request(key,'PUT',stream,true);}finally{stream.destroy();}}
+    else await io.copyAtomic(source,path.join(this.config.directory,key));
   }
   async put(key,data) {
+    if(Buffer.byteLength(data)>MAX_SESSION_BYTES)throw Error('上传对象超过 256 MB 限制');
     if(this.config.type==='webdav') await this.request(key,'PUT',data);
     else await atomic(path.join(this.config.directory,key),data);
   }
@@ -147,10 +167,15 @@ async function publish(store,sessions,projectId,name,deviceId,fileSnapshot,fileL
   const model=require('./project-model.cjs');if(definition)model.validateDefinition(definition);
   const objects=[];
   for(const s of sessions) {
-    parse(s.raw);const digest=hash(s.raw);const key=`object-${digest}.jsonl`;
-    try {if(hash(await store.get(key))!==digest) throw Error('远端已有对象损坏');}
-    catch(e){if(e.code!=='ENOENT' && e.status!==404) throw e;await store.put(key,s.raw);}
-    if(hash(await store.get(key))!==digest) throw Error('上传校验失败');
+    let digest;
+    if(s.file&&store.getFile){
+      const temp=await fs.mkdtemp(path.join(require('node:os').tmpdir(),'desk-publish-'));
+      try{const snapshot=path.join(temp,'snapshot.jsonl'),verify=path.join(temp,'verify.jsonl'),before=await fs.stat(s.file);await io.copyAtomic(s.file,snapshot);const after=await fs.stat(s.file);if(before.size!==after.size||before.mtimeMs!==after.mtimeMs)throw Error('会话在发布期间变化，请停止任务后重试');const read=await io.inspect(snapshot,{previewLimit:0});if(read.id!==s.id||read.cwd!==s.cwd)throw Error('会话身份或目录已变化，请刷新');digest=read.digest;const key='object-'+digest+'.jsonl';
+        try{await store.getFile(key,verify);if(await io.hashFile(verify)!==digest)throw Error('远端已有对象损坏');}
+        catch(e){if(e.code!=='ENOENT'&&e.status!==404)throw e;await store.putFile(key,snapshot);}
+        await store.getFile(key,verify);if(await io.hashFile(verify)!==digest)throw Error('上传校验失败');
+      }finally{await fs.rm(temp,{recursive:true,force:true});}
+    }else{parse(s.raw);digest=hash(s.raw);const key='object-'+digest+'.jsonl';try{if(hash(await store.get(key))!==digest)throw Error('远端已有对象损坏');}catch(e){if(e.code!=='ENOENT'&&e.status!==404)throw e;await store.put(key,s.raw);}if(hash(await store.get(key))!==digest)throw Error('上传校验失败');}
     const workspace=definition?model.locate(s.cwd,definition.roots):undefined;
     if(definition&&!workspace)throw Error('对话不在已定义的目录中');
     objects.push({id:s.id,hash:digest,...(s.nativeName?{name:s.nativeName}:{}),...(workspace?{workspace}:{})});
@@ -178,13 +203,12 @@ async function catalog(store) {
 async function download(store,commit,localSessions,cache) {
   const rows=[];
   for(const o of commit.objects) {
-    const raw=await store.get(`object-${o.hash}.jsonl`);
-    if(hash(raw)!==o.hash) throw Error('下载校验失败，停止应用');
-    const s=parse(raw);if(s.id!==o.id) throw Error('会话 ID 与清单不符');
+    const file=path.join(cache,o.hash+'.jsonl');await fs.mkdir(cache,{recursive:true});
+    if(store.getFile)await store.getFile('object-'+o.hash+'.jsonl',file);else await atomic(file,await store.get('object-'+o.hash+'.jsonl'));
+    const s=await io.inspect(file).catch(e=>{throw Error('下载校验失败：'+e.message);});if(s.digest!==o.hash)throw Error('下载校验失败，停止应用');if(s.id!==o.id)throw Error('会话 ID 与清单不符');
     if(commit.definition){const m=require('./project-model.cjs');const sourceMap=Object.fromEntries(commit.definition.roots.map(r=>[r.id,r.sourcePath]));if(!m.same(m.targetPath(o.workspace,commit.definition,sourceMap),s.cwd))throw Error('清单中的工作目录与对话记录不一致');}
     const matches=localSessions.filter(x=>x.id===s.id);
-    const status=matches.length>1?'conflict':relation(matches[0]?.raw,raw);
-    await atomic(path.join(cache,`${o.hash}.jsonl`),raw);
+    const status=matches.length>1?'conflict':await io.compare(matches[0],s);
     rows.push({id:s.id,title:o.name||s.title,remoteName:o.name||null,status,hash:o.hash,sourceCwd:s.cwd,workspace:o.workspace});
   }
   return rows;
@@ -212,18 +236,15 @@ async function restoreNew(rows,cache,home,cwd) {
   for(const row of rows) {
     if(row.status!=='new'||ids.has(row.id)){results.push({id:row.id,status:'skipped'});continue;}
     if(!/^[a-f0-9]{64}$/.test(row.hash))throw Error('无效对象');
-    const raw=await fs.readFile(path.join(cache,`${row.hash}.jsonl`),'utf8');
-    if(hash(raw)!==row.hash||parse(raw).id!==row.id)throw Error('暂存内容校验失败');
-    const records=raw.split(/\r?\n/).filter(Boolean).map(l=>JSON.parse(l));
-    for(const r of records)if(['session_meta','turn_context'].includes(r.type)&&r.payload&&typeof r.payload.cwd==='string')r.payload.cwd=cwd;
-    const filename=`rollout-${row.id}.jsonl`,target=path.join(dir,filename),temp=path.join(dir,`.${uuid()}.tmp`);
-    try {await fs.writeFile(temp,records.map(r=>JSON.stringify(r)).join('\n')+'\n',{flag:'wx'});await fs.link(temp,target);}
-    finally {await fs.rm(temp,{force:true});}
+    const source=path.join(cache,row.hash+'.jsonl'),session=await io.inspect(source,{previewLimit:0}).catch(e=>{throw Error('暂存内容校验失败：'+e.message);});
+    if(session.digest!==row.hash||session.id!==row.id)throw Error('暂存内容校验失败');
+    const target=path.join(dir,'rollout-'+row.id+'.jsonl'),temp=path.join(dir,'.'+uuid()+'.tmp');
+    try{await io.mapFile(source,temp,cwd);await fs.link(temp,target);}finally{await fs.rm(temp,{force:true});}
     ids.add(row.id);results.push({id:row.id,status:'imported'});
   }
   return results;
 }
-module.exports={parse,scan,relation,Store,publish,catalog,download,atomic,uuid,hash,readEnv,restoreNew,mapRecord,requireCompleteScan};
+module.exports={MAX_SESSION_BYTES,parse,scan,relation,Store,publish,catalog,download,atomic,uuid,hash,readEnv,restoreNew,mapRecord,requireCompleteScan};
 
 // Each project owns an independent folder; immutable commits are the discovery records.
 async function initializeLibrary(store) {

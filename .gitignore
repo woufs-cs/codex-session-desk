@@ -18,3 +18,5 @@ scripts/*
 
 !scripts/build-single-exe.ps1
 !scripts/test-single-exe.cjs
+
+!scripts/test-memory.ps1

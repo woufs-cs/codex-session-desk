@@ -31,6 +31,8 @@
     "createStartMenuShortcut": true,
     "shortcutName": "Session Desk",
     "deleteAppDataOnUninstall": false,
-    "runAfterFinish": false
+    "runAfterFinish": false,
+    "differentialPackage": false,
+    "useZip": true
   }
 }

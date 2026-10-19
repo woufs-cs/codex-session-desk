@@ -9,7 +9,7 @@ if (!(Test-Path -LiteralPath $bundleRoot)) { & (Join-Path $PSScriptRoot 'build-p
 $appRoot = Join-Path $bundleRoot 'resources\app'
 $packaged = Get-Content -LiteralPath (Join-Path $appRoot 'package.json') -Raw | ConvertFrom-Json
 if ($packaged.version -ne $metadata.version -or $packaged.productName -ne 'Session Desk') { throw 'Packaged identity mismatch.' }
-$allowlist = @('time-format.js','desktop.html','desktop.css','desktop-ui.js','desktop-policy.cjs','desktop-membership.cjs','desktop-state.cjs','desktop-properties.cjs','project-model.cjs','project-sync.cjs','codex-rpc.cjs','core.cjs','direct-webdav.cjs','git-service.cjs','git-workflow.cjs','project-files.cjs','codex-cli.cjs','recovery.cjs','main.cjs','preload.cjs','LICENSE')
+$allowlist = @('time-format.js','desktop.html','desktop.css','desktop-ui.js','desktop-policy.cjs','desktop-membership.cjs','desktop-state.cjs','desktop-properties.cjs','project-model.cjs','project-sync.cjs','codex-rpc.cjs','core.cjs','session-io.cjs','direct-webdav.cjs','git-service.cjs','git-workflow.cjs','project-files.cjs','codex-cli.cjs','recovery.cjs','main.cjs','preload.cjs','LICENSE')
 $actual = @(Get-ChildItem -LiteralPath $appRoot -Recurse -File)
 if ($actual.Count -ne ($allowlist.Count + 1)) { throw 'Unexpected files in packaged app.' }
 foreach ($file in $actual) { if ($file.DirectoryName -ne $appRoot -or ($file.Name -ne 'package.json' -and $file.Name -notin $allowlist)) { throw ('Unexpected packaged file: ' + $file.Name) } }
@@ -19,6 +19,8 @@ foreach ($name in $allowlist) {
 $privateFiles = Get-ChildItem -LiteralPath $bundleRoot -Recurse -File | Where-Object { $_.Name -like '.env*' -or $_.Extension -in @('.jsonl','.sqlite','.db','.codexbundle') }
 if ($privateFiles) { throw 'Private data found in payload.' }
 $node = (Get-Command node -ErrorAction Stop).Source
+# Lower compression avoids the default 7z ultra mode's large memory use.
+$env:ELECTRON_BUILDER_COMPRESSION_LEVEL = '1'
 $builder = Join-Path $projectRoot 'node_modules\electron-builder\out\cli\cli.js'
 $artifactKind = if ($Target -eq 'nsis') { 'Setup' } else { 'portable' }
 $output = Join-Path $projectRoot ('dist\single-exe\SessionDesk-' + $metadata.version + '-' + $artifactKind + '-win-x64.exe')

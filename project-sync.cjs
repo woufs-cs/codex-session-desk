@@ -27,11 +27,10 @@ async function reconcile(request,settings,rows,{onProject=async()=>{}}={}){
   for(const row of rows){
     try{
       // Resume repairs native discovery but never starts a turn or invokes a model.
-      await request('thread/resume',{threadId:row.id,cwd:row.targetCwd,approvalPolicy:'untrusted',sandbox:'read-only'});
-      let thread=(await request('thread/read',{threadId:row.id,includeTurns:true})).thread;
+      let thread;try{thread=(await request('thread/read',{threadId:row.id,includeTurns:false})).thread;}catch{await request('thread/resume',{threadId:row.id,cwd:row.targetCwd,approvalPolicy:'untrusted',sandbox:'read-only'});thread=(await request('thread/read',{threadId:row.id,includeTurns:false})).thread;}
       if(!model.same(thread.cwd,row.targetCwd))throw Error('Codex 工作目录与预览不一致');
       if(row.targetName){await request('thread/name/set',{threadId:row.id,name:row.targetName});thread=(await request('thread/read',{threadId:row.id,includeTurns:false})).thread;if(thread.name!==row.targetName)throw Error('对话标题写入后未通过验证');}
-      if(project){if(thread.projectId&&thread.projectId!==project.id)throw Error('对话已有其他项目归属，未覆盖');await request('thread/metadata/update',{threadId:row.id,projectId:project.id});thread=(await request('thread/read',{threadId:row.id,includeTurns:true})).thread;}
+      if(project){if(thread.projectId&&thread.projectId!==project.id)throw Error('对话已有其他项目归属，未覆盖');await request('thread/metadata/update',{threadId:row.id,projectId:project.id});thread=(await request('thread/read',{threadId:row.id,includeTurns:false})).thread;}
       results.push({id:row.id,readable:thread.id===row.id,pathMatches:model.same(thread.cwd,row.targetCwd),membership:project?thread.projectId===project.id:null,projectId:thread.projectId,cwd:thread.cwd});
     }catch(e){results.push({id:row.id,readable:false,error:e.message});}
   }
