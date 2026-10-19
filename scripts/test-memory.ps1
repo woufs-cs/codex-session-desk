@@ -1,4 +1,4 @@
-param([ValidateSet(8,32,138)][int]$SizeMB=8)
+param([ValidateSet(8,32,138)][int]$SizeMB=8,[switch]$ImageRecord)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 $node=(Get-Command node -ErrorAction Stop).Source
@@ -7,6 +7,7 @@ if($free -lt 2GB){throw 'Less than 2 GB free RAM. Test not started.'}
 $env:TEMP=Join-Path $root 'test-data\stream-temp'
 $env:TMP=$env:TEMP
 $env:DESK_TEST_MB=[string]$SizeMB
+$env:DESK_TEST_IMAGE=if($ImageRecord){'1'}else{'0'}
 $out=Join-Path $root ('test-data\memory-'+$SizeMB+'.log')
 $err=Join-Path $root ('test-data\memory-'+$SizeMB+'.err')
 $p=Start-Process -FilePath $node -ArgumentList @('--max-old-space-size=192','test/large-session.test.cjs') -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError $err

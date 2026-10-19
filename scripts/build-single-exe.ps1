@@ -5,7 +5,11 @@ $env:PSModulePath = (Join-Path $PSHOME 'Modules') + [IO.Path]::PathSeparator + $
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $metadata = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json
 $bundleRoot = Join-Path $projectRoot ('dist\SessionDesk-' + $metadata.version + '-win-x64')
-if (!(Test-Path -LiteralPath $bundleRoot)) { & (Join-Path $PSScriptRoot 'build-portable.ps1') }
+if (!(Test-Path -LiteralPath $bundleRoot)) {
+  # ZIP compression may retain a large .NET heap. End that process before NSIS.
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build-portable.ps1')
+  if ($LASTEXITCODE -ne 0) { throw 'Runtime payload build failed.' }
+}
 $appRoot = Join-Path $bundleRoot 'resources\app'
 $packaged = Get-Content -LiteralPath (Join-Path $appRoot 'package.json') -Raw | ConvertFrom-Json
 if ($packaged.version -ne $metadata.version -or $packaged.productName -ne 'Session Desk') { throw 'Packaged identity mismatch.' }
