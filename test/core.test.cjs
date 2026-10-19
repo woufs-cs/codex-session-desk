@@ -48,3 +48,11 @@ test('one cloud project carries files and conversations while later partial upda
   assert.equal((await download(projectStore(store,withFiles),withFiles,[],path.join(root,'cache')))[0].status,'new');
   assert.equal(combined.id,withFiles.id);
 });
+
+test('WebDAV rejects unusable endpoints with actionable errors before sending credentials',()=>{
+ for(const url of [undefined,'','  '])assert.throws(()=>new Store({type:'webdav',url}),/请填写 WebDAV/);
+ for(const url of ['dav.jianguoyun.com/dav/','D:\\Sync','[https://example.org](https://example.org)'])assert.throws(()=>new Store({type:'webdav',url}),/完整的 HTTPS/);
+ for(const url of ['http://example.org/dav/','https://user:pass@example.org/'])assert.throws(()=>new Store({type:'webdav',url}),/必须使用 HTTPS/);
+ for(const url of ['https://example.org/?a=b','https://example.org/#x'])assert.throws(()=>new Store({type:'webdav',url}),/查询参数/);
+ const store=new Store({type:'webdav',url:'  https://dav.jianguoyun.com/dav/  '});assert.equal(store.child('SessionDesk').url,'https://dav.jianguoyun.com/dav/SessionDesk/');
+});

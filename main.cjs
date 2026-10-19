@@ -47,7 +47,7 @@ app.whenReady().then(async()=>{
   lastRecovery=state.lastRecovery||null;
   if(state.gitPath)require('./git-service.cjs').setExecutable(state.gitPath);
   const preferences=()=>({home:state.home,restoreHome:state.restoreHome||state.home,lastWorkspace:state.lastWorkspace||'',gitPath:state.gitPath||'git（系统 PATH）',codexPath:state.codexPath||'自动检测',exclude:state.uploadExclusions[(state.lastWorkspace||'').toLowerCase()]||[]});
-  register('storageOverview',async()=>({version:app.getVersion(),deviceId:state.deviceId,sourceHome:state.home,targetHome:state.restoreHome||state.home,settings:stateFile(),staging:path.join(app.getPath('userData'),'staging'),backups:path.join(state.restoreHome||state.home,'session-desk-backups'),cloud:state.storage?.type==='webdav'?new URL('SessionDesk/projects/',state.storage.url.replace(/\/?$/,'/')).href:state.storage?.directory?path.join(state.storage.directory,'SessionDesk','projects'):null}));
+  register('storageOverview',async()=>({version:app.getVersion(),deviceId:state.deviceId,sourceHome:state.home,targetHome:state.restoreHome||state.home,settings:stateFile(),staging:path.join(app.getPath('userData'),'staging'),backups:path.join(state.restoreHome||state.home,'session-desk-backups'),cloud:state.storage?.type==='webdav'?(()=>{try{return new core.Store(state.storage).url+'SessionDesk/projects/';}catch{return 'WebDAV 地址无效，请在连接设置中修改';}})():state.storage?.directory?path.join(state.storage.directory,'SessionDesk','projects'):null}));
   register('renameDesktopObject',async options=>{
     const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('请先连接 Codex');
     const result=await rpc.withClient(found.path,state.home,request=>require('./desktop-properties.cjs').rename(request,options));

@@ -23,7 +23,18 @@
 
 ## 下载与启动
 
-推荐从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/latest) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
+### Setup 安装版（推荐）
+
+下载 **`SessionDesk-版本-Setup-win-x64.exe`**，运行安装向导，可选择 D 盘等安装位置。安装版会创建桌面和开始菜单快捷方式，并显示在 Windows“设置 → 应用 → 已安装的应用”中，可从那里卸载。默认仅为当前 Windows 用户安装，无需管理员权限。
+
+安装版同样包含应用运行环境，但 **Codex 连接程序仍需单独准备**：在应用中先点击自动检测，未找到时安装 Codex CLI，再重新检测。
+
+升级时先退出 Session Desk，再运行新版 Setup。卸载保留应用设置与备份，不会删除 Codex 对话。安装版与便携版共享当前用户的设置，不要同时运行两份。
+
+### 单文件便携版
+
+
+也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/latest) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
 
 1. 将这个 EXE 放到任意可写位置，例如 D 盘工具目录，双击即可启动。
 2. 无需安装、无需手动解压，不需要把 DLL 或 resources 文件夹放在旁边。
@@ -32,7 +43,7 @@
 
 原来的 ZIP 版继续保留：下载 `SessionDesk-版本-win-x64.zip` 后完整解压，运行文件夹里的 `SessionDesk.exe`。**ZIP 内的 EXE 不能单独复制使用**；文件名带 `portable` 的下载附件才是单文件版。
 
-两种格式共享同一 Windows 用户下的应用设置。切换格式或更新时先退出旧版，不要同时运行两份。更新时下载新版 EXE 并替换旧文件即可；设置和对话不在 EXE 内，也不会跟随 EXE 自动复制到另一台机器。另一台机器仍需设置自己的连接与项目映射。
+上述格式共享同一 Windows 用户下的应用设置。切换格式或更新时先退出旧版，不要同时运行两份。更新时下载新版 EXE 并替换旧文件即可；设置和对话不在 EXE 内，也不会跟随 EXE 自动复制到另一台机器。另一台机器仍需设置自己的连接与项目映射。
 
 便携包包含 Electron，不需要自行安装 Node.js。发布包尚未代码签名。应用不提供账号服务；WebDAV 账号与 Codex 登录由你自己的服务管理。
 
@@ -165,3 +176,11 @@ npm run dist:portable
 欢迎通过 Issue 描述问题和通过 Pull Request 改进。请附版本、操作步骤和脱敏错误，不要上传真实 `.codex`、会话包、账号密码或含私密内容的截图。
 
 采用 [MIT License](LICENSE)。Electron 等第三方组件使用各自许可证，随发布包保留。
+
+### 构建安装版
+
+运行 `npm run dist:setup`，生成 `dist/single-exe/SessionDesk-版本-Setup-win-x64.exe`。安装版与便携版共用经过白名单检查的应用文件，不包含本机账号、配置或对话。
+
+### WebDAV 地址报错排查
+
+服务地址必须是完整 HTTPS 网址。坚果云点击“使用坚果云地址”即可填入 `https://dav.jianguoyun.com/dav/`，再输入账号和应用密码。不要填写电脑上的文件夹路径、坚果云网页版网址或 Markdown 链接。空地址、无效格式以及查询参数会在连接前显示具体提示。

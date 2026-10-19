@@ -1,6 +1,6 @@
 {
   "name": "codex-session-desk",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "private": true,
   "description": "Local-first Codex conversation browser and peer snapshot synchronization",
   "license": "MIT",
@@ -9,7 +9,8 @@
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
     "check": "node --check core.cjs && node --check main.cjs && node --check desktop-ui.js",
-    "dist:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-single-exe.ps1"
+    "dist:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-single-exe.ps1",
+    "dist:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-single-exe.ps1 -Target nsis"
   },
   "devDependencies": {
     "electron": "^41.0.0",

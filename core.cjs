@@ -76,8 +76,13 @@ class Store {
   constructor(config) {
     this.config=config;
     if(config.type==='webdav') {
-      const url=new URL(config.url);
+      const address=typeof config.url==='string'?config.url.trim():'';
+      if(!address) throw Error('请填写 WebDAV 服务地址；坚果云可点击“使用坚果云地址”。');
+      if(address.includes('\\') || /^[a-z]:/i.test(address)) throw Error('请填写完整的 HTTPS WebDAV 服务网址；本地文件夹请切换到“本地同步文件夹”。');
+      let url;
+      try {url=new URL(address);} catch {throw Error('WebDAV 地址格式不正确，请填写完整的 HTTPS 网址，例如 https://dav.jianguoyun.com/dav/ ，不要填写本地文件夹路径或带括号的链接。');}
       if(url.protocol!=='https:' || url.username || url.password) throw Error('WebDAV 必须使用 HTTPS，账号密码请单独输入');
+      if(url.search || url.hash) throw Error('WebDAV 地址不能包含查询参数或 # 片段，请使用服务端提供的 WebDAV 目录地址。');
       this.url=url.href.replace(/\/+$/,'')+'/';
     } else if(!path.isAbsolute(config.directory || '')) throw Error('请选择绝对路径的同步库目录');
   }

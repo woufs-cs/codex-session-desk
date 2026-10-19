@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+# npm may inherit PowerShell 7 module paths while this script runs in Windows PowerShell.
+$env:PSModulePath = (Join-Path $PSHOME 'Modules') + [IO.Path]::PathSeparator + $env:PSModulePath
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $metadata = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json
 $outputRoot = Join-Path $projectRoot 'dist'

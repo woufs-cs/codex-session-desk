@@ -1,4 +1,7 @@
+param([ValidateSet('portable','nsis')][string]$Target = 'portable')
 $ErrorActionPreference = 'Stop'
+# npm may inherit PowerShell 7 module paths while this script runs in Windows PowerShell.
+$env:PSModulePath = (Join-Path $PSHOME 'Modules') + [IO.Path]::PathSeparator + $env:PSModulePath
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $metadata = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json
 $bundleRoot = Join-Path $projectRoot ('dist\SessionDesk-' + $metadata.version + '-win-x64')
@@ -17,11 +20,12 @@ $privateFiles = Get-ChildItem -LiteralPath $bundleRoot -Recurse -File | Where-Ob
 if ($privateFiles) { throw 'Private data found in payload.' }
 $node = (Get-Command node -ErrorAction Stop).Source
 $builder = Join-Path $projectRoot 'node_modules\electron-builder\out\cli\cli.js'
-$output = Join-Path $projectRoot ('dist\single-exe\SessionDesk-' + $metadata.version + '-portable-win-x64.exe')
+$artifactKind = if ($Target -eq 'nsis') { 'Setup' } else { 'portable' }
+$output = Join-Path $projectRoot ('dist\single-exe\SessionDesk-' + $metadata.version + '-' + $artifactKind + '-win-x64.exe')
 if (Test-Path -LiteralPath $output) { throw ('Output already exists: ' + $output) }
 Push-Location $projectRoot
 try {
-  & $node $builder --config electron-builder.json --prepackaged $bundleRoot --win portable --x64 --publish never
+  & $node $builder --config electron-builder.json --prepackaged $bundleRoot --win $Target --x64 --publish never
   if ($LASTEXITCODE -ne 0) { throw 'Single executable build failed.' }
 } finally { Pop-Location }
 if (!(Test-Path -LiteralPath $output)) { throw 'Portable executable missing.' }

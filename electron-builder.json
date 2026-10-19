@@ -21,5 +21,16 @@
     "requestExecutionLevel": "user",
     "unpackDirName": true
   },
-  "publish": null
+  "publish": null,
+  "nsis": {
+    "artifactName": "SessionDesk-${version}-Setup-win-x64.exe",
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Session Desk",
+    "deleteAppDataOnUninstall": false,
+    "runAfterFinish": false
+  }
 }
