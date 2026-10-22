@@ -31,7 +31,8 @@ async function force(rows){
 foreach($target in $targets){$p=Get-CimInstance Win32_Process -Filter ("ProcessId = "+[int]$target.id);if($p -and $p.ExecutablePath -eq $target.path -and $p.CreationDate.ToUniversalTime().Ticks.ToString() -eq [string]$target.created){Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop}}`);
 }
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-async function manage(enabled,action,{onProgress=()=>{},confirmForce=async()=>false,adapter={list,desktopApps,close,restart,sleep,force},timeout=8000}={}){
+const platformAdapters=process.platform==='darwin'?{...require('./mac-lifecycle.cjs'),sleep}:{list,desktopApps,close,restart,sleep,force};
+async function manage(enabled,action,{onProgress=()=>{},confirmForce=async()=>false,adapter=platformAdapters,timeout=8000}={}){
  const closed=[];let value,error;try{
   const before=await adapter.list();
   if(enabled){const apps=await adapter.desktopApps(before);for(const app of apps){onProgress({stage:'关闭 Codex',detail:'等待桌面端正常退出；不会强制结束活动任务'});closed.push(app);await adapter.close(app);}
@@ -43,8 +44,9 @@ async function manage(enabled,action,{onProgress=()=>{},confirmForce=async()=>fa
   value=await action();
  }catch(e){error=e;}finally{
   const remaining=await adapter.list().catch(()=>null);
-  for(const app of new Map(closed.map(a=>[a.path.toLowerCase(),a])).values()){if(!remaining||remaining.some(r=>r.ExecutablePath===app.path))continue;try{onProgress({stage:'重新打开 Codex',detail:'接收处理已结束'});await adapter.restart(app);}catch(e){const note='Codex 自动重启失败，请手动打开：'+e.message;if(error)error.message+='；'+note;else value=String(value||'')+'；'+note;}}
+  for(const app of new Map(closed.map(a=>[a.path.toLowerCase(),a])).values()){if(!remaining||remaining.some(r=>r.ExecutablePath===app.path||r.BundlePath===app.path))continue;try{onProgress({stage:'重新打开 Codex',detail:'接收处理已结束'});await adapter.restart(app);}catch(e){const note='Codex 自动重启失败，请手动打开：'+e.message;if(error)error.message+='；'+note;else value=String(value||'')+'；'+note;}}
  }
  if(error)throw error;return value;
 }
-module.exports={manage,desktopApps,ownedProcesses};
+async function requireStopped(){if((await platformAdapters.list()).length)throw Error('请先完全退出 Codex 桌面端和 CLI，再接收或验证');}
+module.exports={manage,desktopApps,ownedProcesses,requireStopped};

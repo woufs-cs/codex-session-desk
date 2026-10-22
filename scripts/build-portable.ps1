@@ -15,7 +15,7 @@ Rename-Item -LiteralPath (Join-Path $bundleRoot 'electron.exe') -NewName 'Sessio
 $appRoot = Join-Path $bundleRoot 'resources\app'
 New-Item -ItemType Directory -Path $appRoot -Force | Out-Null
 # Explicit allowlist: no credentials, local state, sessions, caches or development dependencies.
-$applicationFiles = @('time-format.js','desktop.html','desktop.css','desktop-ui.js','desktop-policy.cjs','desktop-membership.cjs','desktop-state.cjs','desktop-properties.cjs','project-model.cjs','project-sync.cjs','codex-rpc.cjs','codex-index.cjs','core.cjs','session-io.cjs','sync-worker.cjs','codex-lifecycle.cjs','direct-webdav.cjs','git-service.cjs','git-workflow.cjs','project-files.cjs','codex-cli.cjs','recovery.cjs','main.cjs','preload.cjs','LICENSE')
+$applicationFiles = @('time-format.js','desktop.html','desktop.css','desktop-ui.js','desktop-policy.cjs','desktop-membership.cjs','desktop-state.cjs','desktop-properties.cjs','project-model.cjs','project-sync.cjs','codex-rpc.cjs','codex-index.cjs','core.cjs','session-io.cjs','sync-worker.cjs','codex-lifecycle.cjs','mac-lifecycle.cjs','direct-webdav.cjs','git-service.cjs','git-workflow.cjs','project-files.cjs','codex-cli.cjs','recovery.cjs','main.cjs','preload.cjs','LICENSE')
 foreach ($name in $applicationFiles) { Copy-Item -LiteralPath (Join-Path $projectRoot $name) -Destination $appRoot }
 @{ name=$metadata.name; productName='Session Desk'; version=$metadata.version; main='main.cjs'; license='MIT' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $appRoot 'package.json') -Encoding utf8
 @'

@@ -1,0 +1,52 @@
+{
+  "appId": "io.github.woufs-cs.sessiondesk",
+  "productName": "Session Desk",
+  "executableName": "SessionDesk",
+  "directories": {
+    "output": "dist/mac"
+  },
+  "files": [
+    "time-format.js",
+    "desktop.html",
+    "desktop.css",
+    "desktop-ui.js",
+    "desktop-policy.cjs",
+    "desktop-membership.cjs",
+    "desktop-state.cjs",
+    "desktop-properties.cjs",
+    "project-model.cjs",
+    "project-sync.cjs",
+    "codex-rpc.cjs",
+    "codex-index.cjs",
+    "core.cjs",
+    "session-io.cjs",
+    "sync-worker.cjs",
+    "codex-lifecycle.cjs",
+    "mac-lifecycle.cjs",
+    "direct-webdav.cjs",
+    "git-service.cjs",
+    "git-workflow.cjs",
+    "project-files.cjs",
+    "codex-cli.cjs",
+    "recovery.cjs",
+    "main.cjs",
+    "preload.cjs",
+    "LICENSE",
+    "package.json"
+  ],
+  "asar": false,
+  "compression": "store",
+  "publish": null,
+  "mac": {
+    "target": [
+      "dmg",
+      "zip"
+    ],
+    "category": "public.app-category.developer-tools",
+    "identity": null,
+    "artifactName": "SessionDesk-${version}-mac-${arch}.${ext}"
+  },
+  "dmg": {
+    "sign": false
+  }
+}

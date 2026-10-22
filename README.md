@@ -226,3 +226,10 @@ npm run dist:portable
 - 新接收报告记录文件位置，接收后验证只检查报告中的会话；旧报告首次需要扫描补全位置。单条修复只重新读取所选文件。
 
 升级后进入“云端 → 最近接收记录与单条修复”，核对预期目录，再点击待处理对话旁的“修复这一条”。若预期目录本身不正确，请先重新预览并修改映射。
+## macOS 适配预览（0.16.0-beta.1）
+
+[下载 macOS 源码启动包](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.1/SessionDesk-0.16.0-beta.1-mac-source.zip) · [预发布说明](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.1)
+
+新增 macOS 的 Codex CLI 检测、正常退出／重启与 Windows ↔ Mac 目录映射支持。可以在 Mac 安装 Node.js 24+ 后执行 `bash scripts/start-mac.sh` 启动完整界面，或运行 `npm run dist:mac` 在 Mac 上生成 DMG/ZIP。
+
+这是尚未经过 Mac 真机验收的预览源码；上方 0.15.6 是已发布的 Windows 稳定版本。Mac 首版不强制终止进程，未签名的构建也可能受到系统打开限制。详细安装、同步、打包和测试步骤见 [macOS 使用指南](docs/macos.md)。
