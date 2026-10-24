@@ -2,9 +2,9 @@
 
 面向 **Codex 桌面端**的本地会话管理与多设备同步工具。把项目与对话关联起来，通过自己的 WebDAV 或同步文件夹，在另一台电脑继续工作。
 
-> 独立社区项目，与 OpenAI 无隶属关系。当前为 Windows x64 预览版，原生项目接口仍可能随 Codex 版本变化。首次使用前请备份 Codex 数据。
+> 独立社区项目，与 OpenAI 无隶属关系。当前为 Windows x64 / macOS 预览版，原生项目接口仍可能随 Codex 版本变化。首次使用前请备份 Codex 数据。
 
-[下载 Windows 版本](https://github.com/woufs-cs/codex-session-desk/releases/latest) · [报告问题](https://github.com/woufs-cs/codex-session-desk/issues)
+[下载最新版 Windows / macOS](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.3) · [报告问题](https://github.com/woufs-cs/codex-session-desk/issues)
 
 ![项目与对话界面](docs/images/projects.png)
 
@@ -23,11 +23,15 @@
 
 ## 下载与启动
 
-当前版本 **0.15.6**：新增失败对话的单条目录修复、预期与实际目录诊断，改善 Codex 退出及重启流程，并用元数据缓存、按需预览和定点验证减少重复扫描。138 MB 合成图片接收测试工作集峰值约 127 MB。详见 [验证记录](docs/memory-validation.md)。
+当前预览版 **0.16.0-beta.3**：修复桌面项目登记缺失，区分底层接收与侧栏验收；冲突逐条选择单一版本，不再自动分叉。Mac 系统路径别名与测试模拟也已修复。
 
-- [下载 0.15.6 Setup 安装版（推荐）](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.6/SessionDesk-0.15.6-Setup-win-x64.exe)
-- [下载 0.15.6 ZIP 版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.6/SessionDesk-0.15.6-win-x64.zip)
-- [SHA-256 校验文件](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.15.6/SHA256SUMS-0.15.6.txt)
+- [Windows Setup 安装版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.3/SessionDesk-0.16.0-beta.3-Setup-win-x64.exe)
+- [Windows 单文件便携 EXE](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.3/SessionDesk-0.16.0-beta.3-portable-win-x64.exe)
+- [Apple Silicon Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.3/SessionDesk-0.16.0-beta.3-mac-arm64.dmg)
+- [Intel Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.3/SessionDesk-0.16.0-beta.3-mac-x64.dmg)
+- [全部附件、校验文件及验收限制](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.3)
+
+Mac 安装：打开 DMG，把应用拖入 Applications。包未签名／公证，必要时在系统“隐私与安全性”中允许打开。应用自带运行环境，无需安装 Node.js；仍需检测本机 Codex 连接程序。
 
 另一台电脑升级时，先退出 Session Desk，运行 Setup，沿用原来的安装目录和安装范围（当前用户／所有用户）。所有用户安装需要 Windows 管理员授权。覆盖升级保留该电脑的配置、同步库连接和项目绑定，无需先卸载。首次安装到另一台电脑时，仍需连接同一个同步库，并为云端项目选择该电脑的本地项目目录。建议两台电脑都更新后，再重新扫描和预览同步。
 
@@ -41,9 +45,9 @@
 
 ### 单文件便携版
 
-0.15.6 提供 Setup 和 ZIP，未提供单文件 portable 附件；本次更新请选择上述安装版或 ZIP。以下说明仅适用于提供 portable 附件的历史版本。
+当前预览版同时提供 Setup 和单文件 portable EXE。
 
-也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/latest) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
+也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.3) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
 
 1. 将这个 EXE 放到任意可写位置，例如 D 盘工具目录，双击即可启动。
 2. 无需安装、无需手动解压，不需要把 DLL 或 resources 文件夹放在旁边。
