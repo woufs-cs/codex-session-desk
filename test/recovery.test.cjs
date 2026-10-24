@@ -4,24 +4,24 @@ const raw=()=>JSON.stringify({type:'session_meta',payload:{id:'session',cwd:'D:/
 const message=text=>JSON.stringify({type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text}]}})+'\n';
 async function setup(t){const root=await fs.mkdtemp(path.join(os.tmpdir(),'desk-apply-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const cache=path.join(root,'cache'),home=path.join(root,'home');await fs.mkdir(cache);return {root,cache,home};}
 async function row(cache,text){const hash=c.hash(text);await fs.writeFile(path.join(cache,hash+'.jsonl'),text);return {id:'session',hash};}
-test('new -> grow -> ahead, exact backup, remapping and idempotence',async t=>{
+test('new -> grow -> ahead, no permanent backup, remapping and idempotence',async t=>{
   const {root,cache,home}=await setup(t),base=raw()+message('first');
   await r.apply([await row(cache,base)],cache,home,root);
   const prior=(await c.scan(home)).sessions[0];
   const result=await r.apply([await row(cache,base+message('second'))],cache,home,root);
   assert.equal(result.results[0].status,'updated');
-  assert.equal(await fs.readFile(path.join(path.dirname(result.reportPath),'0.jsonl'),'utf8'),prior.raw);
+  assert.equal(await fs.stat(path.join(home,'session-desk-backups')).catch(()=>null),null);
   assert.equal((await c.scan(home)).sessions[0].messages.length,2);
   assert.equal((await r.apply([await row(cache,base)],cache,home,root)).results[0].status,'ahead');
   assert.equal((await r.apply([await row(cache,base+message('second'))],cache,home,root)).results[0].status,'identical');
 });
-test('divergent histories remain independent, repeats do not duplicate branches',async t=>{
+test('conflicts select one version, preserve ID and are idempotent',async t=>{
   const {root,cache,home}=await setup(t);await r.apply([await row(cache,raw()+message('local'))],cache,home,root);
   const remote=await row(cache,raw()+message('remote'));
-  assert.equal((await r.apply([remote],cache,home,root,{conflicts:'skip'})).results[0].status,'conflict');
-  const result=await r.apply([remote],cache,home,root);assert.equal(result.results[0].status,'branched');
-  assert.equal((await c.scan(home)).sessions.length,2);
-  assert.equal((await r.apply([remote],cache,home,root)).results[0].status,'branch-already-present');
+  assert.equal((await r.apply([remote],cache,home,root,{conflicts:'local'})).results[0].status,'kept-local');
+  const result=await r.apply([remote],cache,home,root,{conflicts:'remote'});assert.equal(result.results[0].status,'updated');
+  assert.equal((await c.scan(home)).sessions.length,1);
+  assert.equal((await r.apply([remote],cache,home,root)).results[0].status,'identical');
 });
 test('corrupt later object aborts entire preparation before any session write',async t=>{
   const {root,cache,home}=await setup(t),good=await row(cache,raw());
@@ -69,10 +69,19 @@ test('per-thread workdir preserves subdirectories and source project IDs are not
   await assert.rejects(r.apply([{...rowValue,targetCwd:root}],cache,home,root),/目录与映射不同/);
 });
 
-test('per-row conflicts require a decision; skip and branch remain independent',async t=>{
+test('per-row conflicts require a decision; local and remote keep a single record',async t=>{
  const {root,cache,home}=await setup(t);await r.apply([await row(cache,raw()+message('local'))],cache,home,root);const remote=await row(cache,raw()+message('remote'));
  await assert.rejects(r.apply([remote],cache,home,root,{perRow:true}),/逐条选择/);
- const worker=require('../sync-worker.cjs'),events=[];const result=await worker.run('receive',{rows:[{...remote,conflictPolicy:'skip'}],cache,home,cwd:root,options:{perRow:true}},e=>events.push(e));assert.equal(result.results[0].status,'conflict');assert.ok(events.some(e=>e.stage==='扫描本机对话'));assert.equal((await c.scan(home)).sessions.length,1);
- const branched=await worker.run('receive',{rows:[{...remote,conflictPolicy:'keep-both'}],cache,home,cwd:root,options:{perRow:true}},e=>events.push(e));assert.equal(branched.results[0].status,'branched');assert.ok(events.some(e=>e.stage==='写入对话'));
- const scanned=await worker.run('scan',{home});assert.equal(scanned.sessions.length,2);assert.equal(scanned.sessions[0].raw,undefined);assert.equal(scanned.sessions[0].messages.length,0);
+ const worker=require('../sync-worker.cjs'),events=[];const result=await worker.run('receive',{rows:[{...remote,conflictPolicy:'local'}],cache,home,cwd:root,options:{perRow:true}},e=>events.push(e));assert.equal(result.results[0].status,'kept-local');assert.ok(events.some(e=>e.stage==='扫描本机对话'));assert.equal((await c.scan(home)).sessions.length,1);
+ const branched=await worker.run('receive',{rows:[{...remote,conflictPolicy:'remote'}],cache,home,cwd:root,options:{perRow:true}},e=>events.push(e));assert.equal(branched.results[0].status,'updated');assert.ok(events.some(e=>e.stage==='写入对话'));
+ const scanned=await worker.run('scan',{home});assert.equal(scanned.sessions.length,1);assert.equal(scanned.sessions[0].raw,undefined);assert.equal(scanned.sessions[0].messages.length,0);
+});
+
+test('stale preview cannot overwrite a changed local history',async t=>{
+ const {root,cache,home}=await setup(t);await r.apply([await row(cache,raw()+message('local'))],cache,home,root);
+ const before=(await c.scan(home)).sessions[0];const remote={...await row(cache,raw()+message('remote')),localDigest:before.digest,conflictPolicy:'remote'};
+ await fs.appendFile(before.file,message('new local message'));
+ await assert.rejects(r.apply([remote],cache,home,root,{perRow:true}),/预览后发生变化/);
+ assert.equal((await c.scan(home)).sessions.length,1);
+ assert.match(await fs.readFile(before.file,'utf8'),/new local message/);
 });

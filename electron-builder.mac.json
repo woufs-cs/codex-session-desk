@@ -32,7 +32,8 @@
     "main.cjs",
     "preload.cjs",
     "LICENSE",
-    "package.json"
+    "package.json",
+    "desktop-registration.cjs"
   ],
   "asar": false,
   "compression": "store",

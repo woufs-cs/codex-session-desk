@@ -32,3 +32,14 @@ test('an image record larger than 8 MB scans and maps without truncation',async 
  const handle=await fs.open(file,'w');try{await handle.writeFile(JSON.stringify({type:'session_meta',payload:{id:'image-large',cwd:dir}})+'\n'+ '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,');for(let i=0;i<144;i++)await handle.writeFile('A'.repeat(65536));await handle.writeFile('"}]}}\n');}finally{await handle.close();}
  const session=await io.inspect(file);assert.equal(session.id,'image-large');await io.mapFile(file,mapped,dir);assert.equal(await io.hashFile(mapped),session.digest);assert.equal(await io.compare({file},{file:mapped}),'identical');
 });
+
+test('equivalent Windows separators and JSON property order do not fork; permission changes still conflict',async()=>{
+ const meta={type:'session_meta',payload:{id:'equivalent',cwd:'D:/A'}};
+ const settings=p=>({type:'turn_context',payload:{cwd:'D:/A',permission_profile:{file_system:{entries:[{access:'read',path:{path:p}}]}}}});
+ const raw=records=>records.map(r=>JSON.stringify(r)).join('\n')+'\n';
+ const a=raw([meta,settings('D:/A/.git')]);
+ const b=raw([{payload:{cwd:'E:/B',id:'equivalent'},type:'session_meta'},{type:'turn_context',payload:{cwd:'E:/B',permission_profile:{file_system:{entries:[{path:{path:'E:/B\\.git'},access:'read'}]}}}}]);
+ assert.equal(await io.compare({raw:a},{raw:b}),'identical');
+ assert.equal(await io.compare({raw:a},{raw:b.replace('"read"','"write"')}),'conflict');
+ assert.equal(await io.compare({raw:a},{raw:b+JSON.stringify({type:'event_msg',payload:{type:'thread_settings_applied'}})+'\n'}),'grow');
+});

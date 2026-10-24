@@ -53,7 +53,15 @@ async function recoveryRows(report,ids,onProgress=()=>{}){
 }
 async function finish(executable,report,onProject,onProgress=()=>{}){
   const rows=await recoveryRows(report,report.results.filter(r=>r.status!=='conflict').map(r=>r.id),onProgress);
-  return rpc.withClient(executable,report.home,request=>reconcile(request,{...report.projectSettings,home:report.home},rows,{onProject,onProgress}));
+  const result=await rpc.withClient(executable,report.home,request=>reconcile(request,{...report.projectSettings,home:report.home},rows,{onProject,onProgress}));
+  result.nativeComplete=result.complete;result.desktopVerified=false;
+  if(result.mode==='desktop'&&result.projectId){
+    try{const project=await rpc.withClient(executable,report.home,async request=>(await request('project/read',{projectId:result.projectId})).project);
+      result.desktopRegistration=await require('./desktop-registration.cjs').register(report.home,project,result.results.filter(r=>r.readable&&r.pathMatches&&r.membership&&!r.error).map(r=>r.id));
+    }catch(e){result.desktopRegistration={registered:false,error:e.message};}
+    result.complete=false; // Registry readback is not an observation of the running desktop sidebar.
+  }
+  return result;
 }
 async function repair(executable,report,id,onProgress=()=>{},services={withClient:rpc.withClient,updateIndex:require('./codex-index.cjs').update}){
   const prior=report.verification?.results?.find(r=>r.id===id);

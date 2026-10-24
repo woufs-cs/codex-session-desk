@@ -1,0 +1,57 @@
+name: macOS release packages
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (must match package version)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        arch: [arm64, x64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Verify release identity
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node -e 'if(process.env.RELEASE_TAG!=="v"+require("./package.json").version)process.exit(1)'
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: node scripts/build-mac.cjs ${{ matrix.arch }}
+      - name: Checksums
+        run: cd dist/mac && shasum -a 256 *.dmg *.zip > SHA256SUMS-mac-${{ matrix.arch }}.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-${{ matrix.arch }}
+          path: |
+            dist/mac/*.dmg
+            dist/mac/*.zip
+            dist/mac/SHA256SUMS-*.txt
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+      - name: Attach packages to existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release upload "$RELEASE_TAG" packages/mac-*/*

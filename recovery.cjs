@@ -4,7 +4,7 @@ const c=require('./core.cjs');
 const io=require('./session-io.cjs');
 async function safePath(p){
   for(let current=path.resolve(p);;current=path.dirname(current)){
-    try{if((await fs.lstat(current)).isSymbolicLink())throw Error('恢复路径不能经过链接');}catch(e){if(e.code!=='ENOENT')throw e;}
+    try{if((await fs.lstat(current)).isSymbolicLink()){const aliases=process.platform==='darwin'?{'/tmp':'/private/tmp','/var':'/private/var','/etc':'/private/etc'}:{};if(!aliases[current]||await fs.realpath(current)!==aliases[current])throw Error('恢复路径不能经过链接');}}catch(e){if(e.code!=='ENOENT')throw e;}
     if(path.dirname(current)===current)break;
   }
 }
@@ -17,9 +17,9 @@ function mapped(raw,cwd,id,rootMappings=[]){
   }).join('\n')+'\n';
 }
 function branchId(id,digest){const h=c.hash(id+digest);return `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-8${h.slice(17,20)}-${h.slice(20,32)}`;}
-async function apply(rows,cache,home,cwd,{conflicts='keep-both',perRow=false,onProgress=()=>{}}={}){
+async function apply(rows,cache,home,cwd,{conflicts=null,perRow=false,onProgress=()=>{}}={}){
   if(!path.isAbsolute(home)||!path.isAbsolute(cwd))throw Error('请选择绝对路径');
-  if(!['keep-both','skip'].includes(conflicts))throw Error('冲突处理无效');
+  if(conflicts!==null&&!['local','remote'].includes(conflicts))throw Error('冲突处理无效');
   await safePath(home);await fs.mkdir(home,{recursive:true});
   const lock=path.join(home,'.session-desk-restore.lock');
   const handle=await fs.open(lock,'wx').catch(()=>{throw Error('恢复锁已存在，请检查是否有未完成恢复');});
@@ -37,24 +37,23 @@ async function apply(rows,cache,home,cwd,{conflicts='keep-both',perRow=false,onP
       const targetCwd=row.targetCwd||cwd;
       if(!path.isAbsolute(targetCwd)||row.mappingError)throw Error('对话目录尚未映射：'+row.id);
       if(existing&&row.targetCwd&&!require('./project-model.cjs').same(existing.cwd,targetCwd))throw Error('已有对话的目录与映射不同，请先检查：'+row.id);
-      const decision=perRow?row.conflictPolicy:conflicts;if(status==='conflict'&&!['keep-both','skip'].includes(decision))throw Error('对话已发生冲突，请重新预览并逐条选择处理方式：'+row.id);
-      if(['identical','ahead'].includes(status)||(status==='conflict'&&decision==='skip')){results.push({id:row.id,status});continue;}
-      const id=status==='conflict'?branchId(row.id,row.hash):row.id;
-      const branch=local.sessions.find(s=>s.id===id);
-      if(status==='conflict'&&branch){results.push({id,status:'branch-already-present'});continue;}
+      const decision=perRow?row.conflictPolicy:conflicts;if(status==='conflict'&&!['local','remote'].includes(decision))throw Error('对话已发生冲突，请重新预览并逐条选择处理方式：'+row.id);
+      if(existing&&row.localDigest&&existing.digest!==row.localDigest)throw Error('本机对话在预览后发生变化，请重新比较：'+row.id);
+      if(['identical','ahead'].includes(status)||(status==='conflict'&&decision==='local')){results.push({id:row.id,status:status==='conflict'?'kept-local':status});continue;}
+      const id=row.id;
       const stamp=new Date().toISOString().slice(0,19).replace(/:/g,'-');
-      const target=status==='grow'?existing.file:path.join(home,'sessions',`rollout-${stamp}-${id}.jsonl`);
+      const target=existing?existing.file:path.join(home,'sessions',`rollout-${stamp}-${id}.jsonl`);
       await safePath(target);
-      const content=path.join(prepared,String(operations.length)+'.jsonl');await io.mapFile(source,content,status==='grow'?existing.cwd:targetCwd,status==='conflict'?id:null,row.rootMappings||[]);if(await io.hashFile(source)!==row.hash)throw Error('暂存内容在准备期间变化');
-      operations.push({target,content,before:status==='grow'?existing.file:null,beforeHash:status==='grow'?existing.digest:null,afterHash:await io.hashFile(content),id,sourceId:row.id,status:status==='conflict'?'branched':status==='grow'?'updated':'imported'});
+      const content=path.join(prepared,String(operations.length)+'.jsonl');await io.mapFile(source,content,existing?existing.cwd:targetCwd,null,row.rootMappings||[]);if(await io.hashFile(source)!==row.hash)throw Error('暂存内容在准备期间变化');
+      operations.push({target,content,before:existing?existing.file:null,beforeHash:existing?existing.digest:null,afterHash:await io.hashFile(content),id,sourceId:row.id,status:existing?'updated':'imported'});
     }
-    const backup=path.join(home,'session-desk-backups',c.uuid());await safePath(backup);await fs.mkdir(backup,{recursive:true});
+    const backup=prepared;await safePath(backup);await fs.mkdir(backup,{recursive:true});
     report={created:new Date().toISOString(),state:'prepared',home,operations:[],results,sessionFiles:Object.fromEntries([...local.sessions.map(s=>[s.id,s.file]),...operations.map(o=>[o.id,o.target])])};
-    for(const [i,op]of operations.entries()){onProgress({stage:'备份原对话',current:i,total:operations.length,detail:op.id});
-      if(op.before!==null){op.backupFile=path.join(backup,`${i}.jsonl`);await io.copyAtomic(op.before,op.backupFile,{exclusive:true});if(await io.hashFile(op.backupFile)!==op.beforeHash)throw Error('目标在备份期间变化，停止恢复');}
-      report.operations.push({target:op.target,id:op.id,sourceId:op.sourceId,status:op.status,beforeHash:op.beforeHash,afterHash:op.afterHash,backup:op.before===null?null:`${i}.jsonl`});
+    for(const [i,op]of operations.entries()){onProgress({stage:'准备原子替换',current:i,total:operations.length,detail:op.id});
+      if(op.before!==null){op.backupFile=path.join(backup,`rollback-${i}.jsonl`);await io.copyAtomic(op.before,op.backupFile,{exclusive:true});if(await io.hashFile(op.backupFile)!==op.beforeHash)throw Error('目标在备份期间变化，停止恢复');}
+      report.operations.push({target:op.target,id:op.id,sourceId:op.sourceId,status:op.status,beforeHash:op.beforeHash,afterHash:op.afterHash,backup:null});
     }
-    const journal=path.join(backup,'report.json');await c.atomic(journal,JSON.stringify(report,null,2));
+    const journal=path.join(home,'session-desk-reports',c.uuid()+'.json');await c.atomic(journal,JSON.stringify(report,null,2));
     const applied=[];
     try{
       for(const [i,op]of operations.entries()){onProgress({stage:"写入对话",current:i,total:operations.length,detail:op.id});
@@ -68,12 +67,12 @@ async function apply(rows,cache,home,cwd,{conflicts='keep-both',perRow=false,onP
       report.state='failed';report.error=e.message;
       for(const op of applied.reverse()){
         try{if(await io.hashFile(op.target)!==op.afterHash)throw Error('文件再次变化，保留备份并停止回滚');if(op.before===null)await fs.unlink(op.target);else await io.copyAtomic(op.backupFile,op.target);}
-        catch(err){report.state='needs-review';report.rollbackError=err.message;}
+        catch(err){report.state='needs-review';report.rollbackError=err.message;report.recoveryTemporaryDirectory=prepared;}
       }
       await c.atomic(journal,JSON.stringify(report,null,2));throw Error(`${e.message}；恢复报告：${journal}`);
     }
     await c.atomic(journal,JSON.stringify(report,null,2));
     return {...report,reportPath:journal};
-  }finally{try{if(prepared)await fs.rm(prepared,{recursive:true,force:true});}finally{await handle.close();await fs.unlink(lock);}}
+  }finally{try{if(prepared&&report?.state!=='needs-review')await fs.rm(prepared,{recursive:true,force:true});}finally{await handle.close();await fs.unlink(lock);}}
 }
 module.exports={apply,mapped,branchId,safePath};

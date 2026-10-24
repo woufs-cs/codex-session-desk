@@ -69,7 +69,7 @@ function mapRecord(r,cwd,rootMappings=[]){
     if(typeof old==='string'){
       context.cwd=cwd;
       for(const key of ['workspace_roots','runtime_workspace_roots'])if(Array.isArray(context[key]))context[key]=context[key].map(p=>{const mapped=globalMap(p);return m.same(mapped,globalMap(old))?cwd:mapped;});
-      const remap=p=>{const mapped=globalMap(p),base=globalMap(old);return typeof mapped==='string'&&(mapped===base||mapped.startsWith(base+'\\')||mapped.startsWith(base+'/'))?cwd+mapped.slice(base.length):mapped;};
+      const remap=p=>{const mapped=globalMap(p),base=globalMap(old);return typeof mapped==='string'&&(mapped===base||mapped.startsWith(base+'\\')||mapped.startsWith(base+'/'))?cwd+mapped.slice(base.length).replace(/\\/g,'/'):mapped;};
       for(const entries of [context.permission_profile?.file_system?.entries,context.file_system_sandbox_policy?.entries])if(Array.isArray(entries))for(const entry of entries)if(entry.path&&typeof entry.path.path==='string')entry.path.path=remap(entry.path.path);
     }
   }
