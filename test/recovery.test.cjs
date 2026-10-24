@@ -85,3 +85,7 @@ test('stale preview cannot overwrite a changed local history',async t=>{
  assert.equal((await c.scan(home)).sessions.length,1);
  assert.match(await fs.readFile(before.file,'utf8'),/new local message/);
 });
+
+test('verified download cache avoids requests and damaged cache is fetched again',async t=>{
+ const root=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'desk-cache-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const cache=path.join(root,'cache'),raw=JSON.stringify({type:'session_meta',payload:{id:'cached',cwd:'/work'}})+'\n',hash=c.hash(raw);let downloads=0;const store={get:async()=>{downloads++;return raw}};const commit={objects:[{id:'cached',hash}]};await c.download(store,commit,[],cache);await c.download(store,commit,[],cache);assert.equal(downloads,1);await fs.writeFile(path.join(cache,hash+'.jsonl'),'broken');await c.download(store,commit,[],cache);assert.equal(downloads,2);const rows=await c.download(store,commit,[{id:'cached',raw}],cache,()=>{},{deferCompare:true});assert.equal(rows[0].status,'pending');
+});

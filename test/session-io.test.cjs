@@ -43,3 +43,7 @@ test('equivalent Windows separators and JSON property order do not fork; permiss
  assert.equal(await io.compare({raw:a},{raw:b.replace('"read"','"write"')}),'conflict');
  assert.equal(await io.compare({raw:a},{raw:b+JSON.stringify({type:'event_msg',payload:{type:'thread_settings_applied'}})+'\n'}),'grow');
 });
+
+test('recent messages retain the tail, timestamps and images with bounded text',async t=>{
+ const dir=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'desk-tail-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));const file=path.join(dir,'s.jsonl');const rows=[{type:'session_meta',payload:{id:'tail',cwd:'/work'}}];for(let i=0;i<12;i++)rows.push({timestamp:'2026-10-24T00:00:'+String(i).padStart(2,'0')+'Z',type:'response_item',payload:{type:'message',role:i%2?'assistant':'user',content:[{type:'input_text',text:i===11?'z'.repeat(20000):'message '+i}]}});rows.push({type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_image',image_url:'data:image/png;base64,AAAA'}]}});await fs.writeFile(file,rows.map(JSON.stringify).join('\n')+'\n');const result=await io.inspect(file,{tailCount:6,previewLimit:16384});assert.equal(result.messages.length,6);assert.equal(result.messages[0].text,'message 7');assert.equal(result.messages[0].timestamp,'2026-10-24T00:00:07Z');assert.equal(result.messages[4].text.length,16384);assert.equal(result.messages[4].truncated,true);assert.equal(result.messages[5].images,1);
+});

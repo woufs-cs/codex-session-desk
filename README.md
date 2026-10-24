@@ -4,7 +4,7 @@
 
 > 独立社区项目，与 OpenAI 无隶属关系。当前为 Windows x64 / macOS 预览版，原生项目接口仍可能随 Codex 版本变化。首次使用前请备份 Codex 数据。
 
-[下载最新版 Windows / macOS](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.3) · [报告问题](https://github.com/woufs-cs/codex-session-desk/issues)
+[下载最新版 Windows / macOS](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.4) · [报告问题](https://github.com/woufs-cs/codex-session-desk/issues)
 
 ![项目与对话界面](docs/images/projects.png)
 
@@ -23,13 +23,13 @@
 
 ## 下载与启动
 
-当前预览版 **0.16.0-beta.3**：修复桌面项目登记缺失，区分底层接收与侧栏验收；冲突逐条选择单一版本，不再自动分叉。Mac 系统路径别名与测试模拟也已修复。
+当前预览版 **0.16.0-beta.4**：修复桌面项目登记缺失，区分底层接收与侧栏验收；冲突逐条选择单一版本，不再自动分叉。Mac 系统路径别名与测试模拟也已修复。
 
-- [Windows Setup 安装版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.3/SessionDesk-0.16.0-beta.3-Setup-win-x64.exe)
-- [Windows 单文件便携 EXE](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.3/SessionDesk-0.16.0-beta.3-portable-win-x64.exe)
-- [Apple Silicon Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.3/SessionDesk-0.16.0-beta.3-mac-arm64.dmg)
-- [Intel Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.3/SessionDesk-0.16.0-beta.3-mac-x64.dmg)
-- [全部附件、校验文件及验收限制](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.3)
+- [Windows Setup 安装版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.4/SessionDesk-0.16.0-beta.4-Setup-win-x64.exe)
+- [Windows 单文件便携 EXE](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.4/SessionDesk-0.16.0-beta.4-portable-win-x64.exe)
+- [Apple Silicon Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.4/SessionDesk-0.16.0-beta.4-mac-arm64.dmg)
+- [Intel Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.4/SessionDesk-0.16.0-beta.4-mac-x64.dmg)
+- [全部附件、校验文件及验收限制](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.4)
 
 Mac 安装：打开 DMG，把应用拖入 Applications。包未签名／公证，必要时在系统“隐私与安全性”中允许打开。应用自带运行环境，无需安装 Node.js；仍需检测本机 Codex 连接程序。
 
@@ -47,7 +47,7 @@ Mac 安装：打开 DMG，把应用拖入 Applications。包未签名／公证�
 
 当前预览版同时提供 Setup 和单文件 portable EXE。
 
-也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.3) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
+也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.4) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
 
 1. 将这个 EXE 放到任意可写位置，例如 D 盘工具目录，双击即可启动。
 2. 无需安装、无需手动解压，不需要把 DLL 或 resources 文件夹放在旁边。
@@ -238,9 +238,9 @@ npm run dist:portable
 
 这是尚未经过 Mac 真机验收的预览源码；上方 0.15.6 是已发布的 Windows 稳定版本。Mac 首版不强制终止进程，未签名的构建也可能受到系统打开限制。详细安装、同步、打包和测试步骤见 [macOS 使用指南](docs/macos.md)。
 
-## 0.16.0-beta.3：桌面登记与单版本接收
+## 0.16.0-beta.4：桌面登记与单版本接收
 
-下载：[Windows / macOS 安装包](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.3)。Windows 选择 Setup EXE（安装版）或 portable EXE（便携版）；Apple Silicon 选择 mac-arm64.dmg，Intel Mac 选择 mac-x64.dmg，将应用拖入 Applications。Mac 包未签名或公证，系统可能要求在“隐私与安全性”中明确允许打开；不需要关闭系统安全功能。连接程序仍使用本机 Codex CLI，安装包不包含账号或用户配置。
+下载：[Windows / macOS 安装包](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.4)。Windows 选择 Setup EXE（安装版）或 portable EXE（便携版）；Apple Silicon 选择 mac-arm64.dmg，Intel Mac 选择 mac-x64.dmg，将应用拖入 Applications。Mac 包未签名或公证，系统可能要求在“隐私与安全性”中明确允许打开；不需要关闭系统安全功能。连接程序仍使用本机 Codex CLI，安装包不包含账号或用户配置。
 
 接收冲突逐条选“保留本机”或“采用云端，替换本机”，同一 ID 仅保留当前版本，不再自动分叉、不保存永久对话备份。选择本机后，需发布本机快照，再由另一台接收。云端已有快照及本机历史分叉不会自动删除。
 
@@ -251,3 +251,10 @@ npm run dist:portable
 对于 beta.1 已接收但没有显示的项目：选择原来接收的目标项目 ID（不要重新创建同名项目），在接收结果中“重试验证”。如果仍保留接收报告，可直接重试；无需重复导入 14 个会话文件。登记成功后重新打开 Codex，检查项目成员，再测试新增一条对话的同步。若已有第二个同名项目，本版本不删除或合并它。
 
 macOS `/tmp`、`/var`、`/etc` 仅在实际解析为对应 `/private/...` 系统目录时放行；其他符号链接仍拒绝。Mac IPC 测试补齐退出检查模拟。安装包构建与自动化测试不代替真实 Codex 桌面端侧栏验收。
+
+
+## 性能与冲突查看（beta.4）
+
+接收预览复用按 SHA-256 校验的已下载快照，缓存损坏会重新获取。目录映射后只比较一次，比较与快照解析在后台工作线程串行执行，避免阻塞界面。读取仍保留完整性校验，不以缓存代替接收前的变更检查。
+
+冲突展开后并排显示两端最后 6 条用户／助手消息，附角色与时间，按时间顺序阅读，不展示开头摘要或工具日志。单条超长消息显示前 16K 字符并明确标注截断，图片显示数量，不加载大图片。重复查看使用有大小上限的缓存，文件变化后重新读取。首次读取大对话仍需要流式扫描；本版未声称具体倍数的加速。

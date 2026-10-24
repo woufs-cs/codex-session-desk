@@ -207,15 +207,16 @@ async function catalog(store) {
   }
   return entries.sort((a,b)=>require('./time-format.js').newest(a,b));
 }
-async function download(store,commit,localSessions,cache,onProgress=()=>{}) {
+async function download(store,commit,localSessions,cache,onProgress=()=>{},{deferCompare=false,inspect=io.inspect}={}) {
   const rows=[];
   for(const o of commit.objects) {onProgress({stage:'下载与校验',current:rows.length,total:commit.objects.length,detail:o.name||o.id});
     const file=path.join(cache,o.hash+'.jsonl');await fs.mkdir(cache,{recursive:true});
-    if(store.getFile)await store.getFile('object-'+o.hash+'.jsonl',file);else await atomic(file,await store.get('object-'+o.hash+'.jsonl'));
-    const s=await io.inspect(file,{previewLimit:0}).catch(e=>{throw Error('下载校验失败：'+e.message);});if(s.digest!==o.hash)throw Error('下载校验失败，停止应用');if(s.id!==o.id)throw Error('会话 ID 与清单不符');
+    let cached=null;try{cached=await inspect(file,{previewLimit:0});}catch{}
+    if(cached?.digest!==o.hash){cached=null;if(store.getFile)await store.getFile('object-'+o.hash+'.jsonl',file);else await atomic(file,await store.get('object-'+o.hash+'.jsonl'));}
+    const s=cached||await inspect(file,{previewLimit:0}).catch(e=>{throw Error('下载校验失败：'+e.message);});if(s.digest!==o.hash)throw Error('下载校验失败，停止应用');if(s.id!==o.id)throw Error('会话 ID 与清单不符');
     if(commit.definition){const m=require('./project-model.cjs');const sourceMap=Object.fromEntries(commit.definition.roots.map(r=>[r.id,r.sourcePath]));if(!m.same(m.targetPath(o.workspace,commit.definition,sourceMap),s.cwd))throw Error('清单中的工作目录与对话记录不一致');}
     const matches=localSessions.filter(x=>x.id===s.id);
-    const status=matches.length>1?'conflict':await io.compare(matches[0],s);
+    const status=matches.length>1?'conflict':deferCompare?(matches.length?'pending':'new'):await io.compare(matches[0],s);
     rows.push({id:s.id,title:o.name||s.title,remoteName:o.name||null,status,hash:o.hash,sourceCwd:s.cwd,workspace:o.workspace});
   }
   return rows;
