@@ -1,6 +1,6 @@
 {
   "name": "codex-session-desk",
-  "version": "0.16.0-beta.2",
+  "version": "0.16.0-beta.3",
   "private": true,
   "description": "Local-first Codex conversation browser and peer snapshot synchronization",
   "license": "MIT",

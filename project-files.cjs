@@ -3,7 +3,7 @@ const excluded=new Set(['.git','node_modules','.venv','venv','__pycache__','.nex
 const maxFile=20*1024*1024,maxTotal=200*1024*1024;
 function allowed(name){const n=name.toLowerCase();return !excluded.has(n)&&!n.startsWith('.env')&&!/^(auth|credentials|secrets)\.(json|toml|ya?ml)$/.test(n)&&! /\.(pem|key|pfx|p12)$/.test(n)&&!n.includes('.sessiondesk-conflict-');}
 function validRelative(p){return typeof p==='string'&&p.length<220&&!p.includes('\\')&&p.split('/').every(s=>s&&s!=='.'&&s!=='..'&&!/[<>:"|?*\x00-\x1f]/.test(s)&&!/[. ]$/.test(s)&&!/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\.|$)/i.test(s)&&allowed(s));}
-async function safe(p){for(let v=path.resolve(p);;v=path.dirname(v)){try{if((await fs.lstat(v)).isSymbolicLink())throw Error('不能同步链接或联接目录');}catch(e){if(e.code!=='ENOENT')throw e;}if(path.dirname(v)===v)break;}}
+async function safe(p){await require('./recovery.cjs').safePath(p);}
 function exclusions(values=[]){
   if(!Array.isArray(values)||values.length>200)throw Error('最多设置 200 条排除路径');
   return [...new Set(values.map(v=>String(v).trim().replace(/\\/g,'/').replace(/\/$/,'')).filter(Boolean))].map(v=>{if(v.startsWith('/')||v.split('/').some(p=>!p||p==='.'||p==='..')||/[:*?\x00-\x1f]/.test(v))throw Error('排除项应为相对文件或目录路径，不支持通配符');return v;});

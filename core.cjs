@@ -239,7 +239,7 @@ async function restoreNew(rows,cache,home,cwd) {
   const dir=path.join(home,'sessions');
   await fs.mkdir(dir,{recursive:true});
   // Refuse symbolic links/junctions along the destination path.
-  for(let p=dir;;p=path.dirname(p)){if((await fs.lstat(p)).isSymbolicLink())throw Error('恢复目标不能经过链接目录');if(path.dirname(p)===p)break;}
+  await require('./recovery.cjs').safePath(dir);
   for(const row of rows) {
     if(row.status!=='new'||ids.has(row.id)){results.push({id:row.id,status:'skipped'});continue;}
     if(!/^[a-f0-9]{64}$/.test(row.hash))throw Error('无效对象');

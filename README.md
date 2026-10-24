@@ -234,9 +234,9 @@ npm run dist:portable
 
 这是尚未经过 Mac 真机验收的预览源码；上方 0.15.6 是已发布的 Windows 稳定版本。Mac 首版不强制终止进程，未签名的构建也可能受到系统打开限制。详细安装、同步、打包和测试步骤见 [macOS 使用指南](docs/macos.md)。
 
-## 0.16.0-beta.2：桌面登记与单版本接收
+## 0.16.0-beta.3：桌面登记与单版本接收
 
-下载：[Windows / macOS 安装包](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.2)。Windows 选择 Setup EXE（安装版）或 portable EXE（便携版）；Apple Silicon 选择 mac-arm64.dmg，Intel Mac 选择 mac-x64.dmg，将应用拖入 Applications。Mac 包未签名或公证，系统可能要求在“隐私与安全性”中明确允许打开；不需要关闭系统安全功能。连接程序仍使用本机 Codex CLI，安装包不包含账号或用户配置。
+下载：[Windows / macOS 安装包](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.3)。Windows 选择 Setup EXE（安装版）或 portable EXE（便携版）；Apple Silicon 选择 mac-arm64.dmg，Intel Mac 选择 mac-x64.dmg，将应用拖入 Applications。Mac 包未签名或公证，系统可能要求在“隐私与安全性”中明确允许打开；不需要关闭系统安全功能。连接程序仍使用本机 Codex CLI，安装包不包含账号或用户配置。
 
 接收冲突逐条选“保留本机”或“采用云端，替换本机”，同一 ID 仅保留当前版本，不再自动分叉、不保存永久对话备份。选择本机后，需发布本机快照，再由另一台接收。云端已有快照及本机历史分叉不会自动删除。
 
