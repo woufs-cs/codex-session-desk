@@ -16,7 +16,10 @@ async function check(executable){
 }
 async function detect(saved){
   const roots=[...(process.env.PATH||'').split(path.delimiter),path.join(process.env.APPDATA||os.homedir(),'npm'),path.join(os.homedir(),'.npm-global','bin'),'D:\\Tools\\npm-global'];
-  const candidates=[saved];
+  const candidates=[];
+  if(process.platform==='win32'&&process.env.LOCALAPPDATA){const bin=path.join(process.env.LOCALAPPDATA,'OpenAI','Codex','bin');const dirs=await fs.readdir(bin,{withFileTypes:true}).catch(()=>[]);const versions=[];for(const d of dirs.filter(d=>d.isDirectory())){const file=path.join(bin,d.name,'codex.exe');const stat=await fs.stat(file).catch(()=>null);if(stat)versions.push({file,time:stat.mtimeMs});}candidates.push(...versions.sort((a,b)=>b.time-a.time).map(v=>v.file));}
+  if(process.platform==='darwin')candidates.push('/Applications/Codex.app/Contents/Resources/codex','/Applications/ChatGPT.app/Contents/Resources/codex');
+  candidates.push(saved);
   if(process.platform!=='win32')candidates.push('/opt/homebrew/bin/codex','/usr/local/bin/codex',path.join(os.homedir(),'.local','bin','codex'));
   for(const root of roots.filter(Boolean)){
     candidates.push(path.join(root,process.platform==='win32'?'codex.exe':'codex'));

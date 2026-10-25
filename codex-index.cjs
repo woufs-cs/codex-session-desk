@@ -12,7 +12,7 @@ async function update(home,{id,file,from,to},beforeWrite=async()=>{}){
  try{
   db.exec('BEGIN IMMEDIATE');transaction=true;
   const row=db.prepare('SELECT id,cwd,rollout_path FROM threads WHERE id=?').get(id);
-  if(!row||!model.same(row.rollout_path,file)||!model.same(row.cwd,from))throw Error('索引中的对话、文件或目录已变化，停止修复；请重新验证');
+  if(!row||!model.same(row.rollout_path,file.endsWith('.jsonl.zst')?file.slice(0,-4):file)||!model.same(row.cwd,from))throw Error('索引中的对话、文件或目录已变化，停止修复；请重新验证');
   await beforeWrite({...row});
   const result=db.prepare('UPDATE threads SET cwd=? WHERE id=? AND cwd=? AND rollout_path=?').run(to,id,row.cwd,row.rollout_path);
   if(result.changes!==1)throw Error('单条索引更新未通过检查');db.exec('COMMIT');transaction=false;

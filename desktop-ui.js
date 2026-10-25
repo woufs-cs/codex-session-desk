@@ -66,7 +66,7 @@ async function showThread(t){captureDraft();selectedThread=t.id;drawTree();if(t.
   const grid=el('div','','propertyGrid');grid.append(field('所属 Codex 项目',project?.name||'未归类',{readOnly:true}),field('消息数量',String(t.messageCount??t.messages.length),{readOnly:true}));const cwd=field('工作目录',t.cwd,{readOnly:true});cwd.className='full';grid.append(cwd);pane.append(grid);
   const ids=el('details');ids.append(el('summary','对话身份 · 只读'),el('p','Thread ID：'+t.id,'mono'),el('p','显示归属 Project ID：'+t.projectId,'mono'),el('p','原生 Project ID：'+(t.membershipSource==='native'?t.projectId:'未设置'),'mono'));pane.append(ids,el('p','同步成员在项目属性中勾选；另一台机器的工作目录在接收预览中指定。标题与归属通过 Codex 接口修改；消息历史保持原样。跨设备标题处理在接收预览中选择。','muted'));
   if(t.previewTruncated)pane.append(el('p','此处只显示部分消息预览，完整会话仍会同步；阅读全部内容请在 Codex 中打开。','muted'));
-  if(!t.available)pane.append(empty('历史记录不可用','Codex 中存在这条对话，但当前数据目录未找到可读取的历史。'));
+  if(!t.available)pane.append(empty('历史记录不可用','Codex 中存在这条对话，但当前数据目录未找到可读取的 JSONL 或 Zstandard 压缩原始历史。仅有分页数据库条目时不会冒充完整记录上传；请查看扫描提示。'));
   for(const m of t.messages){const message=el('div','','message '+m.role);message.append(el('b',m.role==='user'?'你 / USER':'CODEX'),document.createTextNode(m.text));pane.append(message);}
 }
 let moving=null;

@@ -33,7 +33,8 @@
     "preload.cjs",
     "LICENSE",
     "package.json",
-    "desktop-registration.cjs"
+    "desktop-registration.cjs",
+    "paginated-history.cjs"
   ],
   "asar": false,
   "compression": "store",

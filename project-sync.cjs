@@ -41,18 +41,19 @@ async function recoveryRows(report,ids,onProgress=()=>{}){
   const fs=require('node:fs/promises'),path=require('node:path');
   if(!report.sessionFiles){const fresh=await require('./sync-worker.cjs').run('scan',{home:report.home},onProgress);core.requireCompleteScan(fresh,report.home,'停止验证');report.sessionFiles=Object.fromEntries(fresh.sessions.map(s=>[s.id,s.file]));}
   const rows=[];for(const id of ids){
-    const file=report.sessionFiles[id],relative=file&&path.relative(report.home,file);
+    let file=report.sessionFiles[id];if(file?.endsWith('.jsonl.zst')&&await fs.stat(file.slice(0,-4)).catch(()=>null)){file=file.slice(0,-4);report.sessionFiles[id]=file;}const relative=file&&path.relative(report.home,file);
     if(!relative||relative.startsWith('..')||path.isAbsolute(relative)||!['sessions','archived_sessions'].includes(relative.split(path.sep)[0]))throw Error('恢复记录中的会话文件路径无效：'+id);
     await require('./recovery.cjs').safePath(file);
     onProgress({stage:'校验接收的对话',current:rows.length,total:ids.length,detail:id});
     const session=await require('./sync-worker.cjs').run('inspect',{file},onProgress),expected=report.expectedDirectories?.[id]||session.cwd;
     if(session.id!==id)throw Error('会话文件 ID 已变化：'+id);
     if(!session.cwd||!model.same(session.cwd,expected))throw Error('会话文件目录与接收预期不同，请重新预览映射：'+id+'；文件目录：'+session.cwd+'；预期：'+expected);
-    rows.push({id,file,digest:session.digest,bytes:(await fs.stat(file)).size,targetCwd:expected,targetName:report.expectedNames?.[id]});
+    rows.push({id,file,historyMode:session.historyMode,digest:session.digest,bytes:(await fs.stat(file)).size,targetCwd:expected,targetName:report.expectedNames?.[id]});
   }return rows;
 }
 async function finish(executable,report,onProject,onProgress=()=>{}){
   const rows=await recoveryRows(report,report.results.filter(r=>r.status!=='conflict').map(r=>r.id),onProgress);
+  for(const row of rows.filter(r=>r.historyMode==='paginated'&&report.results.some(x=>x.id===r.id&&['updated','imported'].includes(x.status))))await require('./paginated-history.cjs').refresh(executable,report.home,row,onProgress);
   const result=await rpc.withClient(executable,report.home,request=>reconcile(request,{...report.projectSettings,home:report.home},rows,{onProject,onProgress}));
   result.nativeComplete=result.complete;result.desktopVerified=false;
   if(result.mode==='desktop'&&result.projectId){

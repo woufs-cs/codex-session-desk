@@ -12,7 +12,7 @@ async function walk(dir) {
     if(e.isSymbolicLink()) continue;
     const p = path.join(dir,e.name);
     if(e.isDirectory()) result.push(...await walk(p));
-    else if(e.isFile() && e.name.endsWith('.jsonl')) result.push(p);
+    else if(e.isFile() && (e.name.endsWith('.jsonl')||e.name.endsWith('.jsonl.zst'))) result.push(p);
   }
   return result;
 }
@@ -38,14 +38,14 @@ function seedScanCache(entries){for(const [key,value] of entries||[])scanCache.s
 function exportScanCache(){return [...scanCache].slice(-5000);}
 async function scan(home,{previewLimit=64*1024,onProgress=()=>{}}={}) {
   const sessions=[],warnings=[];let retained=0,previewBudget=4*1024*1024;
-  const files=[...await walk(path.join(home,'sessions')),...await walk(path.join(home,'archived_sessions'))];let scanned=0;for(const file of files) {onProgress({stage:'扫描本机对话',current:scanned++,total:files.length,detail:path.basename(file)});
+  const candidates=[...await walk(path.join(home,'sessions')),...await walk(path.join(home,'archived_sessions'))];const names=new Set(candidates);const files=candidates.filter(f=>!f.endsWith('.jsonl.zst')||!names.has(f.slice(0,-4)));let scanned=0;for(const file of files) {onProgress({stage:'扫描本机对话',current:scanned++,total:files.length,detail:path.basename(file)});
     for(let attempt=0;attempt<2;attempt++){
       try {const stat=await fs.stat(file); if(stat.size>MAX_SESSION_BYTES) {warnings.push(`${path.relative(home,file)}：大小 ${(stat.size/1048576).toFixed(1)} MB，超过当前 256 MB 读取限制`);break;}
         const signature=[stat.size,stat.mtimeMs,stat.ctimeMs,stat.ino].join(':'),cached=scanCache.get(file);
         const session=previewLimit===0&&cached?.signature===signature?structuredClone(cached.session):await io.inspect(file,{previewLimit:Math.min(previewLimit,previewBudget)});
         const after=await fs.stat(file);if([after.size,after.mtimeMs,after.ctimeMs,after.ino].join(':')!==signature)throw Error('文件正在变化，请结束对话后刷新');
-        session.bytes=stat.size;scanCache.set(file,{signature,session:{...session,messages:[],raw:undefined}});if(scanCache.size>5000)scanCache.delete(scanCache.keys().next().value);
-        previewBudget-=session.messages.reduce((n,m)=>n+m.text.length,0);if(previewLimit>0&&stat.size<=256*1024&&retained+stat.size<=4*1024*1024){session.raw=await fs.readFile(file,'utf8');retained+=stat.size;}sessions.push(session);break;
+        session.bytes=stat.size;session.storageFormat=file.endsWith('.zst')?'zstd':'jsonl';scanCache.set(file,{signature,session:{...session,messages:[],raw:undefined}});if(scanCache.size>5000)scanCache.delete(scanCache.keys().next().value);
+        previewBudget-=session.messages.reduce((n,m)=>n+m.text.length,0);if(!file.endsWith('.zst')&&previewLimit>0&&stat.size<=256*1024&&retained+stat.size<=4*1024*1024){session.raw=await fs.readFile(file,'utf8');retained+=stat.size;}sessions.push(session);break;
       }catch(e){
         if(!attempt){await new Promise(resolve=>setTimeout(resolve,200));continue;}
         const reason=['EACCES','EPERM'].includes(e.code)?'访问被拒绝，请检查文件权限':e.code==='ENOENT'?'文件已移动或删除，请刷新后重试':e.code?`读取失败（${e.code}）`:e.message;
