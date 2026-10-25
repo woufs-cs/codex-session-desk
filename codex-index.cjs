@@ -19,4 +19,10 @@ async function update(home,{id,file,from,to},beforeWrite=async()=>{}){
   return {...row};
  }finally{if(transaction)db.exec('ROLLBACK');db.close();}
 }
-module.exports={update};
+async function rolloutPaths(home){
+ const files=(await fs.readdir(home)).filter(n=>/^state_\d+\.sqlite$/.test(n));if(!files.length)return new Map();
+ if(files.length!==1||files[0]!=='state_5.sqlite')throw Error('无法确认当前 Codex 索引版本');
+ const file=path.join(home,files[0]);await require('./recovery.cjs').safePath(file);const {DatabaseSync}=require('node:sqlite'),db=new DatabaseSync(file,{readOnly:true});
+ try{db.exec('PRAGMA busy_timeout=2000');const cols=db.prepare('PRAGMA table_info(threads)').all();if(!['id','rollout_path'].every(n=>cols.some(c=>c.name===n)))throw Error('无法读取 Codex 对话文件登记');return new Map(db.prepare('SELECT id,rollout_path FROM threads').all().map(r=>[r.id,r.rollout_path]));}finally{db.close();}
+}
+module.exports={update,rolloutPaths};

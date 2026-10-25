@@ -18,6 +18,6 @@ function define(name,cwd,roots,sessions){
   for(const s of sessions)if(!paths.some(p=>relative(p,s.cwd)!==null)){if(!absolute(s.cwd))throw Error('对话缺少绝对工作目录：'+s.id);paths.push(s.cwd);}
   const d={version:1,name,roots:paths.map((sourcePath,i)=>({id:'root-'+i,sourcePath}))};validateDefinition(d);return d;
 }
-function select(sessions,profile){if(!profile)throw Error('请先在“对话归属与映射”确认要同步的对话');const ids=new Set(profile.threadIds);const chosen=sessions.filter(s=>ids.has(s.id));if(chosen.length!==ids.size)throw Error('成员清单存在丢失或重复的对话，请重新检查');return chosen;}
+function select(sessions,profile){if(!profile)throw Error('请先在“对话归属与映射”确认要同步的对话');const ids=new Set(profile.threadIds);const chosen=sessions.filter(s=>ids.has(s.id));const missing=[...ids].filter(id=>!chosen.some(s=>s.id===id)),duplicates=[...ids].filter(id=>chosen.filter(s=>s.id===id).length>1);if(missing.length||duplicates.length)throw Error('成员清单无法确认：'+[missing.length?'缺少对话 '+missing.join('、'):'',duplicates.length?'存在多个历史文件 '+duplicates.join('、'):''].filter(Boolean).join('；')+'。请刷新扫描并查看具体文件提示；不要删除原始对话。');return chosen;}
 function preview(rows,definition,mapping){return rows.map(row=>{try{const cwd=targetPath(row.workspace,definition,mapping);return {...row,targetCwd:cwd};}catch(e){return {...row,mappingError:e.message};}});}
 module.exports={same,canonical,absolute,relative,locate,define,validateDefinition,validateWorkspace,targetPath,select,preview};

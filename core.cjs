@@ -53,6 +53,19 @@ async function scan(home,{previewLimit=64*1024,onProgress=()=>{}}={}) {
       }
     }
   }
+  // A thread may have historical imports in several directories. Follow Codex's
+  // registered rollout, never infer authority from filenames or modification time.
+  const groups=new Map();for(const s of sessions){if(!groups.has(s.id))groups.set(s.id,[]);groups.get(s.id).push(s);}
+  if([...groups.values()].some(g=>g.length>1)){
+    let registered=new Map(),indexError='';try{registered=await require('./codex-index.cjs').rolloutPaths(home);}catch(e){indexError=e.message;}
+    const resolved=[];for(const [id,group]of groups){if(group.length===1){resolved.push(group[0]);continue;}
+      const expected=registered.get(id),same=require('./project-model.cjs').same;
+      const matching=expected?group.filter(s=>same(s.file,expected)||s.file.endsWith('.jsonl.zst')&&same(s.file.slice(0,-4),expected)):[];
+      const chosen=matching.length===1?matching[0]:!expected&&!indexError&&group.every(s=>s.digest===group[0].digest)?group[0]:null;
+      if(chosen){chosen.alternateFiles=group.filter(s=>s!==chosen).map(s=>s.file);resolved.push(chosen);}
+      else{resolved.push(...group);warnings.push('对话 '+id+' 有多个历史文件，无法确认当前版本'+(indexError?'（'+indexError+'）':'')+'：'+group.map(s=>path.relative(home,s.file)).join('；')+(expected?'；Codex 登记：'+expected:''));}
+    }sessions.splice(0,sessions.length,...resolved);
+  }
   sessions.sort((a,b)=>require('./time-format.js').timestamp(b.updated)-require('./time-format.js').timestamp(a.updated));
   return {sessions,warnings};
 }

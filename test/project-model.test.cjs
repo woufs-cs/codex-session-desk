@@ -3,7 +3,7 @@ const m=require('../project-model.cjs'),sync=require('../project-sync.cjs');
 test('explicit membership is independent of cwd and missing members block publishing',()=>{
   const sessions=[{id:'a',cwd:'D:/main'},{id:'b',cwd:'D:/worktree'},{id:'c',cwd:'D:/main'}];
   assert.deepEqual(m.select(sessions,{threadIds:['a','b']}).map(s=>s.id),['a','b']);
-  assert.throws(()=>m.select(sessions),/确认/);assert.throws(()=>m.select(sessions,{threadIds:['missing']}),/丢失/);
+  assert.throws(()=>m.select(sessions),/确认/);assert.throws(()=>m.select(sessions,{threadIds:['missing']}),/缺少对话 missing/);
 });
 test('multi-root, subdirectories, different drive letters, and worktrees keep distinct mappings',()=>{
   const sessions=[{cwd:'D:\\main\\scripts'},{cwd:'D:\\worktree'}],d=m.define('Project','D:\\main',['D:\\data'],sessions);
@@ -51,3 +51,5 @@ test('large native discovery failures never resume a full history into memory',a
 test('readable and correctly located thread still remains pending on title failure',async()=>{
  const request=async(method)=>{if(method==='thread/list')return {data:[]};if(method==='thread/read')return {thread:{id:'t',cwd:'D:/B'}};throw Error('name update failed');};const result=await sync.reconcile(request,{mode:'cli'},[{id:'t',targetCwd:'D:/B',targetName:'Name'}]);assert.equal(result.results[0].readable,true);assert.equal(result.results[0].pathMatches,true);assert.equal(result.complete,false);
 });
+
+test('duplicate and missing members cannot cancel out by count',()=>{assert.throws(()=>m.select([{id:'a'},{id:'a'}],{threadIds:['a','b']}),/缺少对话 b.*多个历史文件 a/);});
