@@ -25,7 +25,7 @@ async function apply(rows,cache,home,cwd,{conflicts=null,perRow=false,onProgress
   const handle=await fs.open(lock,'wx').catch(()=>{throw Error('恢复锁已存在，请检查是否有未完成恢复');});
   let report,prepared;
   try{
-    const local=await c.scan(home,{previewLimit:0,onProgress});c.requireCompleteScan(local,home,'停止恢复');
+    const local=await c.scan(home,{previewLimit:0,onProgress});c.requireCompleteScan(local,home,'停止恢复',rows.map(r=>r.id));
     const operations=[],results=[],seen=new Set();prepared=await fs.mkdtemp(path.join(home,'.session-desk-prepared-'));
     let preparedCount=0;for(const row of rows){onProgress({stage:'校验并准备对话',current:preparedCount++,total:rows.length,detail:row.title||row.id});
       if(!/^[a-f0-9]{64}$/.test(row.hash))throw Error('无效校验值');

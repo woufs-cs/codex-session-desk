@@ -201,7 +201,7 @@ app.whenReady().then(async()=>{
     if(!path.isAbsolute(cwd)||!options||(!options.files&&!options.conversations))throw Error('请选择要上传的内容');
     if(options.files&&state.projectModes[cwd.toLowerCase()]==='git')throw Error('Git 项目的代码请通过 Git 推送；云端只上传对话');
     const fresh=options.conversations?await require('./sync-worker.cjs').run('scan',{home:state.home},progress):{sessions:[],warnings:[]};
-    core.requireCompleteScan(fresh,state.home,'停止发布');
+    core.requireCompleteScan(fresh,state.home,'停止发布',profileFor(cwd)?.threadIds);
     const source=options.conversations?await sourceSelection(cwd,fresh):null;
     const chosen=source?.selected||[];
     let fileLink=state.projectModes[cwd.toLowerCase()]!=='git'?state.directProjects[bindingKey(config,cwd)]:undefined;
@@ -241,7 +241,7 @@ app.whenReady().then(async()=>{
     if(consent!==true)throw Error('请确认完整会话上传授权');
     // Refresh before capture; partial JSONL causes parse failure rather than truncation.
     const fresh=await require('./sync-worker.cjs').run('scan',{home:state.home},progress);
-    core.requireCompleteScan(fresh,state.home,'停止发布');
+    core.requireCompleteScan(fresh,state.home,'停止发布',profileFor(cwd)?.threadIds);
     const source=await sourceSelection(cwd,fresh),selected=source.selected;
     let files;
     if(includeFiles&&state.projectModes[cwd.toLowerCase()]==='git')throw Error('Git 项目的文件请通过提交和推送同步');
@@ -279,7 +279,7 @@ app.whenReady().then(async()=>{
     const localRef=desktopBinding(config,commit.projectId),profile=profileFor(localRef),cwd=profile?.cwd;if(!cwd)throw Error('请先关联本机项目');
     if(!profile||profile.mode!=='desktop')throw Error('请先设置本机目录和目标 Codex 项目');
     const home=state.restoreHome||state.home,fresh=await require('./sync-worker.cjs').run('scan',{home},progress);
-    core.requireCompleteScan(fresh,home,'停止比较');
+    core.requireCompleteScan(fresh,home,'停止比较',commit.objects.map(o=>o.id));
     const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('请先连接 Codex');const targetInventory=await rpc.inventory(found.path,home);
     const rows=await core.download(core.projectStore(storage(config),commit),commit,fresh.sessions,path.join(app.getPath('userData'),'staging'),progress,{deferCompare:true,inspect:file=>require('./sync-worker.cjs').run('inspectMetadata',{file})});
     const definition=commit.definition||model.define(commit.name,rows[0]?.sourceCwd||cwd,[],rows.map(r=>({cwd:r.sourceCwd})));
