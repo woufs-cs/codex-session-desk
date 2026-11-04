@@ -8,7 +8,13 @@ if(!isMainThread){
   if(task==='inspectMetadata')return require('./session-io.cjs').inspect(args.file,{previewLimit:0});
   if(task==='recent')return require('./session-io.cjs').inspect(args.file,{previewLimit:16384,tailCount:6});
   if(task==='inspect')return require('./session-io.cjs').inspect(args.file,{previewLimit:4096});
-  if(task==='scan')return require('./core.cjs').scan(args.home,{previewLimit:0,onProgress:progress});
+  if(task==='scan'){
+   const core=require('./core.cjs'),fs=require('node:fs/promises');
+   if(args.cacheFile)try{const st=await fs.stat(args.cacheFile);if(st.size<8*1024*1024){const saved=JSON.parse(await fs.readFile(args.cacheFile,'utf8'));if(saved.version===1&&saved.home===args.home&&Array.isArray(saved.entries))core.seedScanCache(saved.entries.filter(e=>Array.isArray(e)&&e.length===2&&typeof e[0]==='string'&&typeof e[1]?.signature==='string'&&((e[1].session?.file===e[0]&&typeof e[1].session?.id==='string'&&/^[a-f0-9]{64}$/.test(e[1].session?.digest)&&Array.isArray(e[1].session?.messages))||(e[1].issue?.kind==='oversized'&&typeof e[1].issue?.message==='string'))));}}catch{}
+   const result=await core.scan(args.home,{previewLimit:0,onProgress:progress,threadIds:args.threadIds,metadataOnly:args.metadataOnly});
+   if(args.cacheFile)try{await core.atomic(args.cacheFile,JSON.stringify({version:1,home:args.home,entries:core.exportScanCache()}));}catch{}
+   return result;
+  }
   throw Error('Unknown synchronization task');
  })().then(result=>parentPort.postMessage({result,scanCache:require('./core.cjs').exportScanCache()}),error=>parentPort.postMessage({error:error.message}));
 }

@@ -36,23 +36,27 @@ function parse(raw, file='') {
 const scanCache=new Map();
 function seedScanCache(entries){for(const [key,value] of entries||[])scanCache.set(key,value);while(scanCache.size>5000)scanCache.delete(scanCache.keys().next().value);}
 function exportScanCache(){return [...scanCache].slice(-5000);}
-async function oversizedIssue(file,home,message){
- // Read only the bounded first metadata record, never guess identity from a filename.
- let id=null,parts=[],length=0;try{for await(const chunk of io.chunks(file)){const newline=chunk.indexOf(10),part=newline<0?chunk:chunk.subarray(0,newline);length+=part.length;if(length>65536)break;parts.push(part);if(newline>=0){const r=JSON.parse(Buffer.concat(parts).toString('utf8'));if(r.type==='session_meta'&&validId(r.payload?.id||r.payload?.session_id))id=r.payload.id||r.payload.session_id;break;}}}catch{}
- return {kind:'oversized',id,file:path.relative(home,file),message};
+async function readHeader(file){
+ let parts=[],length=0;for await(const chunk of io.chunks(file)){const end=chunk.indexOf(10),part=end<0?chunk:chunk.subarray(0,end);length+=part.length;if(length>65536)throw Error('会话头部超过读取限制');parts.push(part);if(end>=0){const r=JSON.parse(Buffer.concat(parts).toString('utf8'));if(r.type!=='session_meta'||!validId(r.payload?.id||r.payload?.session_id))throw Error('无法识别会话头部');return {...r.payload,id:r.payload.id||r.payload.session_id};}}throw Error('缺少完整会话头部');
 }
-async function scan(home,{previewLimit=64*1024,onProgress=()=>{}}={}) {
-  const sessions=[],warnings=[],issues=[];let retained=0,previewBudget=4*1024*1024;
-  const candidates=[...await walk(path.join(home,'sessions')),...await walk(path.join(home,'archived_sessions'))];const names=new Set(candidates);const files=candidates.filter(f=>!f.endsWith('.jsonl.zst')||!names.has(f.slice(0,-4)));let scanned=0;for(const file of files) {onProgress({stage:'扫描本机对话',current:scanned++,total:files.length,detail:path.basename(file)});
-    for(let attempt=0;attempt<2;attempt++){
-      try {const stat=await fs.stat(file); if(stat.size>MAX_SESSION_BYTES) {const message=`${path.relative(home,file)}：大小 ${(stat.size/1048576).toFixed(1)} MB，超过当前 256 MB 读取限制`;warnings.push(message);issues.push(await oversizedIssue(file,home,message));break;}
-        const signature=[stat.size,stat.mtimeMs,stat.ctimeMs,stat.ino].join(':'),cached=scanCache.get(file);
-        const session=previewLimit===0&&cached?.signature===signature?structuredClone(cached.session):await io.inspect(file,{previewLimit:Math.min(previewLimit,previewBudget)});
+async function oversizedIssue(file,home,message){let id=null;try{id=(await readHeader(file)).id;}catch{}return {kind:'oversized',id,file:path.relative(home,file),message};}
+async function scan(home,{previewLimit=64*1024,onProgress=()=>{},threadIds,metadataOnly=false}={}) {
+  const expectedIds=new Map(),scope=Array.isArray(threadIds)?new Set(threadIds):null;const sessions=[],warnings=[],issues=[],stats={historyReads:0,cacheHits:0};let retained=0,previewBudget=4*1024*1024;
+  const candidates=[...await walk(path.join(home,'sessions')),...await walk(path.join(home,'archived_sessions'))];const names=new Set(candidates);let files=candidates.filter(f=>!f.endsWith('.jsonl.zst')||!names.has(f.slice(0,-4)));
+  if(scope){try{const registered=await require('./codex-index.cjs').rolloutPaths(home),targets=[];let complete=true;for(const id of scope){const base=registered.get(id);const match=base&&files.find(f=>require('./project-model.cjs').same(f,base)||f.endsWith('.jsonl.zst')&&require('./project-model.cjs').same(f.slice(0,-4),base));if(!match){complete=false;break;}targets.push(match);expectedIds.set(match,id);}if(complete)files=[...new Set(targets)];}catch{} }
+  let scanned=0;for(const file of files) {onProgress({stage:'扫描本机对话',current:scanned++,total:files.length,detail:path.basename(file)});
+    for(let attempt=0;attempt<2;attempt++){let observedSignature;
+      try {const stat=await fs.stat(file);const signature=[stat.size,stat.mtimeMs,stat.ctimeMs,stat.ino].join(':'),cached=scanCache.get(file);observedSignature=signature;
+        let header;if(scope||metadataOnly){header=await readHeader(file);if(expectedIds.has(file)&&expectedIds.get(file)!==header.id)throw Error('Codex 登记的文件身份与对话不一致');if(scope&&!scope.has(header.id))break;
+          if(metadataOnly){sessions.push({id:header.id,cwd:header.cwd||'',file,messages:[],messageCount:null,metadataOnly:true,updated:header.timestamp||'',title:'未命名对话',archived:file.split(path.sep).includes('archived_sessions')});break;}}
+        if(cached?.signature===signature&&cached.issue){stats.cacheHits++;warnings.push(cached.issue.message);issues.push(cached.issue);break;}
+        if(stat.size>MAX_SESSION_BYTES) {const message=`${path.relative(home,file)}：大小 ${(stat.size/1048576).toFixed(1)} MB，超过当前 256 MB 读取限制`;warnings.push(message);const issue=await oversizedIssue(file,home,message);issues.push(issue);scanCache.set(file,{signature,issue});break;}
+        const useCache=previewLimit===0&&cached?.signature===signature&&cached.session&&(!header||cached.session.id===header.id);if(useCache)stats.cacheHits++;else stats.historyReads++;const session=useCache?structuredClone(cached.session):await io.inspect(file,{previewLimit:Math.min(previewLimit,previewBudget)});
         const after=await fs.stat(file);if([after.size,after.mtimeMs,after.ctimeMs,after.ino].join(':')!==signature)throw Error('文件正在变化，请结束对话后刷新');
         session.bytes=stat.size;session.storageFormat=file.endsWith('.zst')?'zstd':'jsonl';scanCache.set(file,{signature,session:{...session,messages:[],raw:undefined}});if(scanCache.size>5000)scanCache.delete(scanCache.keys().next().value);
         previewBudget-=session.messages.reduce((n,m)=>n+m.text.length,0);if(!file.endsWith('.zst')&&previewLimit>0&&stat.size<=256*1024&&retained+stat.size<=4*1024*1024){session.raw=await fs.readFile(file,'utf8');retained+=stat.size;}sessions.push(session);break;
       }catch(e){
-        if(e.code==='SESSION_TOO_LARGE'){const message=path.relative(home,file)+'：'+e.message;warnings.push(message);issues.push(await oversizedIssue(file,home,message));break;}
+        if(e.code==='SESSION_TOO_LARGE'){const message=path.relative(home,file)+'：'+e.message;warnings.push(message);const issue=await oversizedIssue(file,home,message);issues.push(issue);const st=await fs.stat(file).catch(()=>null);if(st&&[st.size,st.mtimeMs,st.ctimeMs,st.ino].join(':')===observedSignature)scanCache.set(file,{signature:observedSignature,issue});break;}
         if(!attempt){await new Promise(resolve=>setTimeout(resolve,200));continue;}
         const reason=['EACCES','EPERM'].includes(e.code)?'访问被拒绝，请检查文件权限':e.code==='ENOENT'?'文件已移动或删除，请刷新后重试':e.code?`读取失败（${e.code}）`:e.message;
         warnings.push(`${path.relative(home,file)}：${reason}`);
@@ -67,13 +71,13 @@ async function scan(home,{previewLimit=64*1024,onProgress=()=>{}}={}) {
     const resolved=[];for(const [id,group]of groups){if(group.length===1){resolved.push(group[0]);continue;}
       const expected=registered.get(id),same=require('./project-model.cjs').same;
       const matching=expected?group.filter(s=>same(s.file,expected)||s.file.endsWith('.jsonl.zst')&&same(s.file.slice(0,-4),expected)):[];
-      const chosen=matching.length===1?matching[0]:!expected&&!indexError&&group.every(s=>s.digest===group[0].digest)?group[0]:null;
+      const chosen=matching.length===1?matching[0]:!expected&&!indexError&&group[0].digest&&group.every(s=>s.digest===group[0].digest)?group[0]:null;
       if(chosen){chosen.alternateFiles=group.filter(s=>s!==chosen).map(s=>s.file);resolved.push(chosen);}
       else{resolved.push(...group);warnings.push('对话 '+id+' 有多个历史文件，无法确认当前版本'+(indexError?'（'+indexError+'）':'')+'：'+group.map(s=>path.relative(home,s.file)).join('；')+(expected?'；Codex 登记：'+expected:''));}
     }sessions.splice(0,sessions.length,...resolved);
   }
   sessions.sort((a,b)=>require('./time-format.js').timestamp(b.updated)-require('./time-format.js').timestamp(a.updated));
-  return {sessions,warnings,issues};
+  return {sessions,warnings,issues,stats};
 }
 function requireCompleteScan(result,home,action,threadIds){
   const scope=Array.isArray(threadIds)?new Set(threadIds):null;const ignored=new Set((result.issues||[]).filter(i=>scope&&i.kind==='oversized'&&i.id&&!scope.has(i.id)).map(i=>i.message));
@@ -255,7 +259,7 @@ function readEnv(text) {
 }
 async function restoreNew(rows,cache,home,cwd) {
   if(!path.isAbsolute(home)||!path.isAbsolute(cwd))throw Error('恢复目录必须为绝对路径');
-  const existing=await scan(home);requireCompleteScan(existing,home,'停止恢复',rows.map(r=>r.id));
+  const existing=await scan(home,{threadIds:rows.map(r=>r.id)});requireCompleteScan(existing,home,'停止恢复',rows.map(r=>r.id));
   const ids=new Set(existing.sessions.map(s=>s.id)),results=[];
   const dir=path.join(home,'sessions');
   await fs.mkdir(dir,{recursive:true});

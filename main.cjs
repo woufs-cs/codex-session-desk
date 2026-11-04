@@ -66,8 +66,8 @@ app.whenReady().then(async()=>{
   register('undoDesktopMembership',async()=>{const change=state.lastMembershipChange;if(!change||!model.same(change.home,state.home))throw Error('当前数据目录没有可撤销的归属调整');const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('请先连接 Codex');await rpc.withClient(found.path,state.home,request=>require('./desktop-properties.cjs').move(request,{id:change.thread.id,targetProjectId:change.thread.nativeProjectId||null,expectedNativeProjectId:change.targetProjectId}));const inventory=await rpc.inventory(found.path,state.home),thread=inventory.threads.find(t=>t.id===change.thread.id);if((thread?.projectId||null)!==(change.thread.projectId||null))throw Error('原生归属已撤销，但显示归属发生变化，请刷新核对');for(const [k,p]of Object.entries(state.desktopProjects))if(JSON.parse(k)[0]===model.canonical(state.home)&&p.sourceProjectId!==thread?.projectId)p.threadIds=p.threadIds.filter(id=>id!==change.thread.id);state.lastMembershipChange=null;plan=[];planProject=null;await save();return '已撤销最近一条归属调整；请重新确认参与同步的对话。';});
   register('desktopWorkspace',async()=>{
     const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('尚未找到 Codex 连接程序。请打开连接设置，检测或选择 Codex CLI 可执行文件。');
-    state.codexPath=found.path;const inventory=await rpc.inventory(found.path,state.home),scanned=await require('./sync-worker.cjs').run('scan',{home:state.home},progress);sessions=scanned.sessions;
-    await save();return {home:state.home,projects:inventory.projects,threads:inventory.threads.map(t=>{const s=sessions.find(s=>s.id===t.id);return {...t,title:t.title||s?.title||'未命名对话',messages:s?.messages||[],updated:s?.updated||'',messageCount:s?.messageCount||s?.messages.length||0,previewTruncated:!!s?.previewTruncated,available:!!s};}),unassigned:inventory.threads.filter(t=>!t.projectId).length,warnings:[...scanned.warnings,...(inventory.warnings||[])]};
+    state.codexPath=found.path;const inventory=await rpc.inventory(found.path,state.home),scanned=await require('./sync-worker.cjs').run('scan',{home:state.home,metadataOnly:true},progress);sessions=scanned.sessions;
+    await save();return {home:state.home,projects:inventory.projects,threads:inventory.threads.map(t=>{const s=sessions.find(s=>s.id===t.id);return {...t,title:t.title||s?.title||'未命名对话',messages:s?.messages||[],updated:s?.updated||'',messageCount:s?.metadataOnly?null:(s?.messageCount||s?.messages.length||0),previewTruncated:!!s?.previewTruncated,available:!!s};}),unassigned:inventory.threads.filter(t=>!t.projectId).length,warnings:[...scanned.warnings,...(inventory.warnings||[])]};
   });
   register('desktopStatus',async()=>{const found=await require('./codex-cli.cjs').detect(state.codexPath);if(found){state.codexPath=found.path;await save();}return {runtime:found?found.version:'尚未找到连接程序',preferences:preferences()};});
   register('conversationProject',async ref=>{const p=profileFor(ref);return p?{...p,cloudProjectId:state.storage?state.desktopBindings[desktopBindingKey(state.storage,ref)]||null:null}:null;});
@@ -87,7 +87,7 @@ app.whenReady().then(async()=>{
   register('inspectCodexProjects',async(target=false)=>{const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('未找到 Codex 连接程序，请在连接设置中选择 Codex CLI 可执行文件');state.codexPath=found.path;await save();return rpc.inventory(found.path,target?(state.restoreHome||state.home):state.home);});
   register('saveConversationProject',async(ref,options)=>{
     if(ref!=='codex:'+options.sourceProjectId)throw Error('本机项目身份无效');
-    const fresh=await require('./sync-worker.cjs').run('scan',{home:state.home},progress);let inventory={projects:[],threads:[]};
+    const fresh=await require('./sync-worker.cjs').run('scan',{home:state.home,metadataOnly:true,threadIds:options.threadIds},progress);let inventory={projects:[],threads:[]};
     if(options.sourceProjectId){const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('请在连接设置选择 Codex 连接程序');inventory=await rpc.inventory(found.path,state.home);}
     const ids=require('./desktop-policy.cjs').validateProfile(options,fresh.sessions,inventory);
     const roots=inventory.projects.find(p=>p.id===options.sourceProjectId)?.roots.map(r=>r.path)||[];
@@ -200,7 +200,7 @@ app.whenReady().then(async()=>{
   register('publishCloudProject',async(config,cwd,options)=>{
     if(!path.isAbsolute(cwd)||!options||(!options.files&&!options.conversations))throw Error('请选择要上传的内容');
     if(options.files&&state.projectModes[cwd.toLowerCase()]==='git')throw Error('Git 项目的代码请通过 Git 推送；云端只上传对话');
-    const fresh=options.conversations?await require('./sync-worker.cjs').run('scan',{home:state.home},progress):{sessions:[],warnings:[]};
+    const fresh=options.conversations?await require('./sync-worker.cjs').run('scan',{home:state.home,threadIds:profileFor(cwd)?.threadIds,cacheFile:path.join(app.getPath('userData'),'scan-cache.json')},progress):{sessions:[],warnings:[]};
     core.requireCompleteScan(fresh,state.home,'停止发布',profileFor(cwd)?.threadIds);
     const source=options.conversations?await sourceSelection(cwd,fresh):null;
     const chosen=source?.selected||[];
@@ -240,7 +240,7 @@ app.whenReady().then(async()=>{
   register('publish',async(config,cwd,name,consent,includeFiles=false)=>{
     if(consent!==true)throw Error('请确认完整会话上传授权');
     // Refresh before capture; partial JSONL causes parse failure rather than truncation.
-    const fresh=await require('./sync-worker.cjs').run('scan',{home:state.home},progress);
+    const fresh=await require('./sync-worker.cjs').run('scan',{home:state.home,threadIds:profileFor(cwd)?.threadIds,cacheFile:path.join(app.getPath('userData'),'scan-cache.json')},progress);
     core.requireCompleteScan(fresh,state.home,'停止发布',profileFor(cwd)?.threadIds);
     const source=await sourceSelection(cwd,fresh),selected=source.selected;
     let files;
@@ -278,7 +278,7 @@ app.whenReady().then(async()=>{
     plan=[];planProject=null;const commit=commits.find(c=>c.id===id);if(!commit)throw Error('请刷新云端项目');
     const localRef=desktopBinding(config,commit.projectId),profile=profileFor(localRef),cwd=profile?.cwd;if(!cwd)throw Error('请先关联本机项目');
     if(!profile||profile.mode!=='desktop')throw Error('请先设置本机目录和目标 Codex 项目');
-    const home=state.restoreHome||state.home,fresh=await require('./sync-worker.cjs').run('scan',{home},progress);
+    const home=state.restoreHome||state.home,fresh=await require('./sync-worker.cjs').run('scan',{home,threadIds:commit.objects.map(o=>o.id),cacheFile:path.join(app.getPath('userData'),'scan-cache.json')},progress);
     core.requireCompleteScan(fresh,home,'停止比较',commit.objects.map(o=>o.id));
     const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('请先连接 Codex');const targetInventory=await rpc.inventory(found.path,home);
     const rows=await core.download(core.projectStore(storage(config),commit),commit,fresh.sessions,path.join(app.getPath('userData'),'staging'),progress,{deferCompare:true,inspect:file=>require('./sync-worker.cjs').run('inspectMetadata',{file})});
