@@ -32,7 +32,7 @@ const scope=c=>`${c.url || ''}\n${c.username || ''}`;
 function storage(config) {return new core.Store({...config,password:config.password||(scope(config)===secretScope?secret:'')});}
 const stateFile=()=>path.join(app.getPath('userData'),'settings.json');
 async function save(){await core.atomic(stateFile(),JSON.stringify(state,null,2));}
-let progressAt=0,progressStage='';function progress(value){const now=Date.now();if(!value.done&&value.stage===progressStage&&now-progressAt<100)return;progressAt=now;progressStage=value.stage;if(win&&!win.isDestroyed())win.webContents.send('sync-progress',value);}
+let progressAt=0,progressStage='';function progress(value){const now=Date.now();if(!value.done&&!value.complete&&value.stage===progressStage&&now-progressAt<100)return;progressAt=now;progressStage=value.stage;if(win&&!win.isDestroyed())win.webContents.send('sync-progress',value);}
 function register(name,fn){ipcMain.handle(name,async(_e,...args)=>{if(busy)throw Error('有任务正在进行，请稍候');busy=true;progress({stage:({restore:'准备接收',download:'下载与比较',verifyRecovery:'准备验证'})[name]||'正在处理'});try{return await fn(...args);}finally{busy=false;progress({done:true});}});}
 app.whenReady().then(async()=>{
   state=await fs.readFile(stateFile(),'utf8').then(JSON.parse).catch(()=>({deviceId:core.uuid(),home:process.env.CODEX_HOME&&path.isAbsolute(process.env.CODEX_HOME)?process.env.CODEX_HOME:path.join(os.homedir(),'.codex'),bindings:{}}));
@@ -212,7 +212,7 @@ app.whenReady().then(async()=>{
     const answer=await dialog.showMessageBox(win,{type:'question',buttons:['取消','上传到云端'],defaultId:0,cancelId:0,message:'确认发布这个项目的所选内容？',detail:cwd+'\n对话：'+chosen.length+' 个；文件：'+(files?.files.length||0)+' 个。完整记录可能含敏感信息。请先结束活动任务。'+(files?'\n文件预览：\n'+files.files.slice(0,30).map(f=>f.path).join('\n'):'\n项目代码仍由 Git 或其他方式管理。')});
     if(answer.response!==1)return {cancelled:true};
     const key=bindingKey(config,cwd),id=state.bindings[key]||core.uuid();
-    const published=await core.publishProject(storage(config),chosen,id,source?.profile.name||path.basename(cwd),state.deviceId,files,fileLink,source?.definition);
+    const published=await core.publishProject(storage(config),chosen,id,source?.profile.name||path.basename(cwd),state.deviceId,files,fileLink,source?.definition,progress);
     state.bindings[key]=id;
     if(files)state.fileBaselines[key]=Object.fromEntries(files.files.map(f=>[f.path,f.hash]));
     if(!state.localProjects.some(p=>p.toLowerCase()===cwd.toLowerCase()))state.localProjects.push(cwd);
@@ -251,7 +251,7 @@ app.whenReady().then(async()=>{
       if(confirm.response!==1)throw Error('已取消项目发布');
     }
     const key=desktopBindingKey(config,cwd),id=state.desktopBindings[key] || core.uuid();state.desktopBindings[key]=id;await save();
-    const published=await core.publishProject(storage(config),selected,id,source.profile.name,state.deviceId,files,undefined,source.definition);
+    const published=await core.publishProject(storage(config),selected,id,source.profile.name,state.deviceId,files,undefined,source.definition,progress);
     if(files){state.fileBaselines[key]=Object.fromEntries(files.files.map(f=>[f.path,f.hash]));await save();}
     return published;
   });

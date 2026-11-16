@@ -20,6 +20,7 @@
     "codex-index.cjs",
     "core.cjs",
     "session-io.cjs",
+    "file-transfer.cjs",
     "sync-worker.cjs",
     "codex-lifecycle.cjs",
     "mac-lifecycle.cjs",
