@@ -62,5 +62,5 @@ test('scan identifies damaged files and line numbers without exposing message co
 });
 test('scan retries incomplete writes and recognizes over-limit files without loading them',async t=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'desk-retry-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const dir=path.join(root,'sessions');await fs.mkdir(dir);const file=path.join(dir,'active.jsonl');await fs.writeFile(file,'{');const complete=new Promise(resolve=>setTimeout(()=>fs.writeFile(file,raw('active')).then(resolve),100));const c=require('../core.cjs'),result=await c.scan(root);await complete;assert.equal(result.warnings.length,0);assert.equal(result.sessions.length,1);
- const big=path.join(dir,'large.jsonl');await fs.writeFile(big,'');await fs.truncate(big,257*1048576);const oversized=await c.scan(root);assert.match(oversized.warnings[0],/large.jsonl.*257.0 MB.*256 MB/);assert.throws(()=>c.requireCompleteScan(oversized,root,'停止比较'),/large.jsonl/);
+ const big=path.join(dir,'large.jsonl');await fs.writeFile(big,'');await fs.truncate(big,513*1048576);const oversized=await c.scan(root);assert.match(oversized.warnings[0],/large.jsonl.*513.0 MB.*512 MB/);assert.throws(()=>c.requireCompleteScan(oversized,root,'停止比较'),/large.jsonl/);
 });

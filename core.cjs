@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const io=require('./session-io.cjs');
 const hash = text => crypto.createHash('sha256').update(text).digest('hex');
 const uuid = () => crypto.randomUUID();
-const MAX_SESSION_BYTES=256*1024*1024;
+const MAX_SESSION_BYTES=io.MAX_BYTES;
 const validId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(id);
 async function walk(dir) {
   const result = [];
@@ -50,7 +50,7 @@ async function scan(home,{previewLimit=64*1024,onProgress=()=>{},threadIds,metad
         let header;if(scope||metadataOnly){header=await readHeader(file);if(expectedIds.has(file)&&expectedIds.get(file)!==header.id)throw Error('Codex 登记的文件身份与对话不一致');if(scope&&!scope.has(header.id))break;
           if(metadataOnly){sessions.push({id:header.id,cwd:header.cwd||'',file,messages:[],messageCount:null,metadataOnly:true,updated:header.timestamp||'',title:'未命名对话',archived:file.split(path.sep).includes('archived_sessions')});break;}}
         if(cached?.signature===signature&&cached.issue){stats.cacheHits++;warnings.push(cached.issue.message);issues.push(cached.issue);break;}
-        if(stat.size>MAX_SESSION_BYTES) {const message=`${path.relative(home,file)}：大小 ${(stat.size/1048576).toFixed(1)} MB，超过当前 256 MB 读取限制`;warnings.push(message);const issue=await oversizedIssue(file,home,message);issues.push(issue);scanCache.set(file,{signature,issue});break;}
+        if(stat.size>MAX_SESSION_BYTES) {const message=`${path.relative(home,file)}：大小 ${(stat.size/1048576).toFixed(1)} MB，超过当前 512 MB 读取限制`;warnings.push(message);const issue=await oversizedIssue(file,home,message);issues.push(issue);scanCache.set(file,{signature,issue});break;}
         const useCache=previewLimit===0&&cached?.signature===signature&&cached.session&&(!header||cached.session.id===header.id);if(useCache)stats.cacheHits++;else stats.historyReads++;const session=useCache?structuredClone(cached.session):await io.inspect(file,{previewLimit:Math.min(previewLimit,previewBudget)});
         const after=await fs.stat(file);if([after.size,after.mtimeMs,after.ctimeMs,after.ino].join(':')!==signature)throw Error('文件正在变化，请结束对话后刷新');
         session.bytes=stat.size;session.storageFormat=file.endsWith('.zst')?'zstd':'jsonl';scanCache.set(file,{signature,session:{...session,messages:[],raw:undefined}});if(scanCache.size>5000)scanCache.delete(scanCache.keys().next().value);
@@ -159,18 +159,18 @@ class Store {
   }
   async getFile(key,target) {
     const temp=target+'.'+uuid()+'.tmp';try{
-      if(this.config.type==='webdav'){const r=await this.request(key);if(Number(r.headers.get('content-length'))>MAX_SESSION_BYTES){await r.body?.cancel();throw Error('远端对象超过 256 MB 限制');}await io.writeChunks(temp,r.body||[]);}
+      if(this.config.type==='webdav'){const r=await this.request(key);if(Number(r.headers.get('content-length'))>MAX_SESSION_BYTES){await r.body?.cancel();throw Error('远端对象超过 512 MB 限制');}await io.writeChunks(temp,r.body||[]);}
       else await io.writeChunks(temp,io.chunks(path.join(this.config.directory,key)));
       await fs.rename(temp,target);
     }finally{await fs.rm(temp,{force:true});}
   }
   async putFile(key,source) {
-    if((await fs.stat(source)).size>MAX_SESSION_BYTES)throw Error('上传对象超过 256 MB 限制');
+    if((await fs.stat(source)).size>MAX_SESSION_BYTES)throw Error('上传对象超过 512 MB 限制');
     if(this.config.type==='webdav'){const stream=require('node:fs').createReadStream(source,{highWaterMark:65536});try{await this.request(key,'PUT',stream,true);}finally{stream.destroy();}}
     else await io.copyAtomic(source,path.join(this.config.directory,key));
   }
   async put(key,data) {
-    if(Buffer.byteLength(data)>MAX_SESSION_BYTES)throw Error('上传对象超过 256 MB 限制');
+    if(Buffer.byteLength(data)>MAX_SESSION_BYTES)throw Error('上传对象超过 512 MB 限制');
     if(this.config.type==='webdav') await this.request(key,'PUT',data);
     else await atomic(path.join(this.config.directory,key),data);
   }

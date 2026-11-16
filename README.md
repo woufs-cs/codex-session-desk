@@ -4,7 +4,7 @@
 
 > 独立社区项目，与 OpenAI 无隶属关系。当前为 Windows x64 / macOS 预览版，原生项目接口仍可能随 Codex 版本变化。首次使用前请备份 Codex 数据。
 
-[下载最新版 Windows / macOS](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.8) · [报告问题](https://github.com/woufs-cs/codex-session-desk/issues)
+[下载最新版 Windows / macOS](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.9) · [报告问题](https://github.com/woufs-cs/codex-session-desk/issues)
 
 ![项目与对话界面](docs/images/projects.png)
 
@@ -23,13 +23,13 @@
 
 ## 下载与启动
 
-当前预览版 **0.16.0-beta.8**：优化列表与单条会话同步。列表只读取会话头部和原生项目元数据，正文按需加载；发布、比较和接收按选中的对话读取，优先使用原生登记路径。检查结果及超限状态缓存在本机，文件变化后自动失效；仍保留同步写入前的校验。
+当前预览版 **0.16.0-beta.9**：单个会话及同步对象上限统一提高到 512 MB，覆盖本地扫描、压缩历史解压、上传和下载。旧的 256 MB 超限缓存自动失效；保留流式处理、按需读取和按同步范围检查。
 
-- [Windows Setup 安装版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.8/SessionDesk-0.16.0-beta.8-Setup-win-x64.exe)
-- [Windows 单文件便携 EXE](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.8/SessionDesk-0.16.0-beta.8-portable-win-x64.exe)
-- [Apple Silicon Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.8/SessionDesk-0.16.0-beta.8-mac-arm64.dmg)
-- [Intel Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.8/SessionDesk-0.16.0-beta.8-mac-x64.dmg)
-- [全部附件、校验文件及验收限制](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.8)
+- [Windows Setup 安装版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.9/SessionDesk-0.16.0-beta.9-Setup-win-x64.exe)
+- [Windows 单文件便携 EXE](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.9/SessionDesk-0.16.0-beta.9-portable-win-x64.exe)
+- [Apple Silicon Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.9/SessionDesk-0.16.0-beta.9-mac-arm64.dmg)
+- [Intel Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.9/SessionDesk-0.16.0-beta.9-mac-x64.dmg)
+- [全部附件、校验文件及验收限制](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.9)
 
 Mac 安装：打开 DMG，把应用拖入 Applications。包未签名／公证，必要时在系统“隐私与安全性”中允许打开。应用自带运行环境，无需安装 Node.js；仍需检测本机 Codex 连接程序。
 
@@ -47,7 +47,7 @@ Mac 安装：打开 DMG，把应用拖入 Applications。包未签名／公证�
 
 当前预览版同时提供 Setup 和单文件 portable EXE。
 
-也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.8) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
+也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.9) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
 
 1. 将这个 EXE 放到任意可写位置，例如 D 盘工具目录，双击即可启动。
 2. 无需安装、无需手动解压，不需要把 DLL 或 resources 文件夹放在旁边。
@@ -200,15 +200,15 @@ npm run dist:portable
 
 ### 会话读取异常
 
-发布、比较或恢复遇到会话读取失败时，会显示扫描目录、异常文件相对路径及原因（例如 JSON 行号、权限或超过 256 MB）。程序会对失败读取重试一次，但不会跳过损坏记录继续覆盖。请先退出 Codex，并确认按需同步文件已下载到本机后重试。仍失败时，将提示中的文件名与原因提供给维护者，不要直接删除原始对话。诊断不会显示消息正文。
+发布、比较或恢复遇到会话读取失败时，会显示扫描目录、异常文件相对路径及原因（例如 JSON 行号、权限或超过 512 MB）。程序会对失败读取重试一次，但不会跳过损坏记录继续覆盖。请先退出 Codex，并确认按需同步文件已下载到本机后重试。仍失败时，将提示中的文件名与原因提供给维护者，不要直接删除原始对话。诊断不会显示消息正文。
 
 ### 大会话与项目折叠
 
-单个会话及同步对象上限为 256 MB，本地扫描和云端读写使用同一上限。WebDAV 上传、下载允许最多 5 分钟；服务商自身的文件大小限制仍然有效。读取时逐条解析 JSONL，降低工具输出占用的额外内存。项目名称再次点击可收起，再点展开；收起不会清除右侧内容或未保存的勾选。
+单个会话及同步对象上限为 512 MB，本地扫描和云端读写使用同一上限。WebDAV 上传、下载允许最多 5 分钟；服务商自身的文件大小限制仍然有效。读取时逐条解析 JSONL，降低工具输出占用的额外内存。项目名称再次点击可收起，再点展开；收起不会清除右侧内容或未保存的勾选。
 
 ### 大文件内存控制（0.15.5）
 
-扫描只保留有限预览，发布、下载、比较、备份和恢复通过文件流执行，不同时加载所有会话原文。单文件上限 256 MB。内嵌 Base64 图片（`data:image/...;base64,`）通过摘要与文件区间处理，单条记录的图片数据可超过 8 MB，恢复时分块复制原始图片，不截断或删除。除图片外的单条 JSONL 内容仍有 8 MB 安全解析上限；超限会停止并保留原文件。界面预览最多每条会话 64K 字符／200 条消息，整个扫描的预览预算 4M 字符；预览截断不影响完整同步。原生验证优先读取元数据，Codex 返回超大响应时停止验证并保留恢复报告。
+扫描只保留有限预览，发布、下载、比较、备份和恢复通过文件流执行，不同时加载所有会话原文。单文件上限 512 MB。内嵌 Base64 图片（`data:image/...;base64,`）通过摘要与文件区间处理，单条记录的图片数据可超过 8 MB，恢复时分块复制原始图片，不截断或删除。除图片外的单条 JSONL 内容仍有 8 MB 安全解析上限；超限会停止并保留原文件。界面预览最多每条会话 64K 字符／200 条消息，整个扫描的预览预算 4M 字符；预览截断不影响完整同步。原生验证优先读取元数据，Codex 返回超大响应时停止验证并保留恢复报告。
 
 测试与打包分开运行。`npm test` 使用串行测试和 192 MB JavaScript 堆上限，默认大文件样本为 1 MB。维护者可依次运行 `scripts/test-memory.ps1 -SizeMB 8`、`32`、`138`；每次仅一个进程、低优先级，384 MB 工作集或三分钟超限即停止，并要求至少 2 GB 空闲内存。只有前一级通过才运行下一级。打包采用较低压缩等级。上述限制不控制 Codex 本身或网盘客户端的内存。
 
@@ -238,9 +238,9 @@ npm run dist:portable
 
 这是尚未经过 Mac 真机验收的预览源码；上方 0.15.6 是已发布的 Windows 稳定版本。Mac 首版不强制终止进程，未签名的构建也可能受到系统打开限制。详细安装、同步、打包和测试步骤见 [macOS 使用指南](docs/macos.md)。
 
-## 0.16.0-beta.8：桌面登记与单版本接收
+## 0.16.0-beta.9：桌面登记与单版本接收
 
-下载：[Windows / macOS 安装包](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.8)。Windows 选择 Setup EXE（安装版）或 portable EXE（便携版）；Apple Silicon 选择 mac-arm64.dmg，Intel Mac 选择 mac-x64.dmg，将应用拖入 Applications。Mac 包未签名或公证，系统可能要求在“隐私与安全性”中明确允许打开；不需要关闭系统安全功能。连接程序仍使用本机 Codex CLI，安装包不包含账号或用户配置。
+下载：[Windows / macOS 安装包](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.9)。Windows 选择 Setup EXE（安装版）或 portable EXE（便携版）；Apple Silicon 选择 mac-arm64.dmg，Intel Mac 选择 mac-x64.dmg，将应用拖入 Applications。Mac 包未签名或公证，系统可能要求在“隐私与安全性”中明确允许打开；不需要关闭系统安全功能。连接程序仍使用本机 Codex CLI，安装包不包含账号或用户配置。
 
 接收冲突逐条选“保留本机”或“采用云端，替换本机”，同一 ID 仅保留当前版本，不再自动分叉、不保存永久对话备份。选择本机后，需发布本机快照，再由另一台接收。云端已有快照及本机历史分叉不会自动删除。
 
@@ -261,6 +261,6 @@ macOS `/tmp`、`/var`、`/etc` 仅在实际解析为对应 `/private/...` 系统
 
 ### 分页历史兼容
 
-扫描同时支持 `.jsonl` 和 `.jsonl.zst`，上传完整原始历史，而不是仅导出界面摘要。解压、映射与导出按流处理，解压后的单文件上限仍为 256 MB。接收更新的分页对话时，需退出 Codex；应用只重建目标对话的派生索引，其他对话不受影响。未知数据库结构会停止处理并报告原因。仅有分页数据库、没有完整原始文件时，仍提示历史不可用，不会将不完整记录作为完整对话上传。
+扫描同时支持 `.jsonl` 和 `.jsonl.zst`，上传完整原始历史，而不是仅导出界面摘要。解压、映射与导出按流处理，解压后的单文件上限仍为 512 MB。接收更新的分页对话时，需退出 Codex；应用只重建目标对话的派生索引，其他对话不受影响。未知数据库结构会停止处理并报告原因。仅有分页数据库、没有完整原始文件时，仍提示历史不可用，不会将不完整记录作为完整对话上传。
 
 建议两台机器都升级，并在连接设置中重新自动检测 Codex 连接程序。Windows 原生分页读取、追加、覆盖和实际 EXE 启动已做隔离验证；Mac 安装包经 CI 构建与自动测试，真实桌面侧栏显示仍需真机验收。
