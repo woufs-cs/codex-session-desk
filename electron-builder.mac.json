@@ -24,6 +24,8 @@
     "session-pack.cjs",
     "project-current.cjs",
     "project-journal.cjs",
+    "publication-checkpoint.cjs",
+    "cloud-maintenance.cjs",
     "sync-worker.cjs",
     "codex-lifecycle.cjs",
     "mac-lifecycle.cjs",

@@ -8,12 +8,13 @@ function validate(e){
  const ids=new Set(e.candidate.objects.map(o=>o.id));for(const [id,refs]of Object.entries(e.supersedes))if(!ids.has(id)||!Array.isArray(refs)||refs.length>10000||refs.some(r=>typeof r!=='string'||!(/^(?:legacy:[a-f0-9]{64}|[a-f0-9]{64}:[a-zA-Z0-9_-]{1,100})$/).test(r)))throw Error('发布记录版本关系无效');
  return e;
 }
-async function records(store){let names;try{names=(await store.list()).filter(n=>/^update-[a-f0-9]{64}\.json$/.test(n));}catch(e){if(missing(e))return [];throw e;}names=[...new Set(names)].sort();if(names.length>20000)throw Error('发布记录超过安全读取上限');
+async function records(store){let names,listed;try{listed=await store.list();names=listed.filter(n=>/^update-[a-f0-9]{64}\.json$/.test(n));}catch(e){if(missing(e))return [];throw e;}names=[...new Set(names)].sort();if(names.length>20000)throw Error('发布记录超过安全读取上限');
+ const checkpoint=await require('./publication-checkpoint.cjs').read(store,names,listed.includes('checkpoint-v1.json')),accelerated=new Map(checkpoint.map(r=>[r.hash,r]));
  const root=store.config?.verificationCacheDirectory;const cache=root?path.join(root,'publication-records',hash(JSON.stringify([store.url||store.config.directory,store.config.username||'']))):null,result=[];
- let bytes=0;for(const key of names){const h=key.slice(7,-5),file=cache&&path.join(cache,key);let raw;
-  if(file)try{if((await fs.stat(file)).size<=limit){const saved=await fs.readFile(file,'utf8');if(hash(saved)===h)raw=saved;}}catch{}
+ let bytes=0;for(const key of names){const h=key.slice(7,-5),file=cache&&path.join(cache,key);let raw=accelerated.get(h)?.raw;
+  if(raw===undefined&&file)try{if((await fs.stat(file)).size<=limit){const saved=await fs.readFile(file,'utf8');if(hash(saved)===h)raw=saved;}}catch{}
   if(raw===undefined){try{raw=await store.get(key);}catch(e){if(missing(e))throw Error('发布记录尚未完整同步，请稍后重新检查');throw e;}if(Buffer.byteLength(raw)>limit||hash(raw)!==h)throw Error('发布记录完整性校验失败：'+key);if(file)try{await require('./core.cjs').atomic(file,raw);}catch{}}
-  bytes+=Buffer.byteLength(raw);if(bytes>32*1024*1024)throw Error('发布元数据超过 32 MB 安全读取上限');result.push({hash:h,event:validate(JSON.parse(raw))});
+  bytes+=Buffer.byteLength(raw);if(bytes>32*1024*1024)throw Error('发布元数据超过 32 MB 安全读取上限');result.push({hash:h,raw,event:accelerated.has(h)&&accelerated.get(h).raw===raw?accelerated.get(h).event:validate(JSON.parse(raw))});
  }return result;
 }
 function materialize(records){if(!records.length)return null;const byHash=new Map(records.map(r=>[r.hash,r])),depth=new Map(),children=new Map(),remaining=new Map(),queue=[];
@@ -34,7 +35,8 @@ function materialize(records){if(!records.length)return null;const byHash=new Ma
  view.id='j-'+hash(ordered.map(r=>r.hash).sort().join(','));view.current=true;view.journal=true;view.cloudConflicts=conflicts;view.revisions=revisions;view.heads=ordered.filter(r=>!allParents.has(r.hash)).map(r=>r.hash);delete view.legacyInherited;
  require('./core.cjs').validateCommit(view);return view;
 }
-async function load(store){return materialize(await records(store));}
+const views=new Map();
+async function load(store){const rows=await records(store),key=hash(rows.map(r=>r.hash).sort().join(','));if(views.has(key))return structuredClone(views.get(key));const view=materialize(rows);views.set(key,view);while(views.size>2)views.delete(views.keys().next().value);return structuredClone(view);}
 async function publish(store,candidate,base={},legacy=null,{resolve={}}={}){
  const prior=await records(store),current=materialize(prior)||legacy,supersedes={};
  for(const o of candidate.objects){const conflict=current?.cloudConflicts?.find(c=>c.id===o.id),refs=current?.revisions?.[o.id]||[];
@@ -45,7 +47,7 @@ async function publish(store,candidate,base={},legacy=null,{resolve={}}={}){
  const seed=!prior.length&&legacy?{...legacy}:undefined;if(seed){delete seed.library;delete seed.localRef;delete seed.localPath;delete seed.legacyInherited;}
  const event={protocol:1,parents:current?.heads||[],supersedes,candidate,...(seed?{seed}:{})};validate(event);const raw=JSON.stringify(event);if(Buffer.byteLength(raw)>limit)throw Error('发布记录超过 4 MB 限制');const h=hash(raw),key='update-'+h+'.json';
  await store.put(key,raw);if(hash(await store.get(key))!==h)throw Error('发布记录读回校验失败');
- const after=await records(store);if(!after.some(r=>r.hash===h))after.push({hash:h,event});return {...materialize(after),published:true};
+ const after=await records(store);if(!after.some(r=>r.hash===h))after.push({hash:h,event,raw});const result={...materialize(after),published:true};try{result.checkpoint=await require('./publication-checkpoint.cjs').write(store,after);}catch(e){result.checkpoint={status:'deferred',message:'对话已发布；检查点未更新，下次重试：'+e.message};}return result;
 }
 async function resolve(store,id,chosenHash,expected,device){const current=await load(store),conflict=current?.cloudConflicts.find(c=>c.id===id),variant=conflict?.variants.find(v=>v.object.hash===chosenHash);if(!variant)throw Error('云端冲突已变化，请重新检查');const candidate={schema:variant.object.encoding?3:variant.definition?2:1,id:crypto.randomUUID(),projectId:current.projectId,name:current.name,deviceId:device,created:new Date().toISOString(),objects:[variant.object],...(variant.definition?{definition:variant.definition}:{})};return publish(store,candidate,{},null,{resolve:{[id]:expected}});}
 module.exports={records,materialize,load,publish,resolve,validate};

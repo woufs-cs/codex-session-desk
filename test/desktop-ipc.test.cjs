@@ -53,7 +53,7 @@ test('actual IPC keeps same-root projects separate through publish, new-target r
  assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'synced');
 
  // Force two valid sibling publications, then exercise the real conflict IPC.
- const before=(await ipc.checkProjectUpdates(config,'codex:p1')).remote,target=core.projectStore(new core.Store(config),before);
+ const before=(await ipc.checkProjectUpdates(config,'codex:p1')).remote,target=core.projectStore(new core.Store(config),before);await ipc.catalog(config);const usage=await ipc.cloudStorageUsage(config,before.projectId);assert(usage.current.files>0);assert.equal(usage.automaticDeletion,false);assert.equal((await ipc.compactCloudMetadata(config,before.projectId)).status,'ready');
  for(const text of ['cloud left','cloud right']){const candidate=await core.publish(target,[core.parse(JSON.stringify({type:'session_meta',payload:{id:'t1',cwd}})+'\n'+message(text))],before.projectId,'p1','other-device');const event={protocol:1,parents:before.heads,supersedes:{t1:before.revisions.t1},candidate},raw=JSON.stringify(event);await target.put('update-'+core.hash(raw)+'.json',raw);}
  assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'cloud-conflict');
  const choices=await ipc.inspectCloudConflict(config,'codex:p1','t1');assert.equal(choices.variants.length,2);assert(choices.variants.every(v=>v.messages.length));
