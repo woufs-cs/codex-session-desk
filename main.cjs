@@ -34,10 +34,10 @@ function storage(config) {return new core.Store({...config,verificationCacheDire
 async function checkUpdates(config,ref){
  const p=profileFor(ref);if(!p)throw Error('请先保存参与同步的对话');const key=desktopBindingKey(config,ref),id=state.desktopBindings[key];
  const cloud=id?(await core.catalog(storage(config).child('SessionDesk').child('projects').child('p-'+id)).catch(e=>{if(e.status===404||e.code==='ENOENT')return [];throw e;})):[];
- let remote=require('./project-current.cjs').inheritLegacy(cloud);if(remote)remote={...remote,library:true};else if(id){const flat=await core.catalog(storage(config)).catch(e=>{if(e.status===404||e.code==='ENOENT')return [];throw e;});const old=require('./project-current.cjs').inheritLegacy(flat.filter(c=>c.projectId===id));if(old)remote={...old,library:false};}const ids=[...new Set([...p.threadIds,...(remote?.objects||[]).map(o=>o.id)])];
+ let remote=require('./project-current.cjs').inheritLegacy(cloud);if(remote)remote={...remote,library:true};else if(id){const flat=await core.catalog(storage(config)).catch(e=>{if(e.status===404||e.code==='ENOENT')return [];throw e;});const old=require('./project-current.cjs').inheritLegacy(flat.filter(c=>c.projectId===id));if(old)remote={...old,library:false};}const ids=[...new Set([...p.threadIds,...(remote?.objects||[]).map(o=>o.id),...(remote?.cloudConflicts||[]).map(o=>o.id)])];
  const fresh=await require('./sync-worker.cjs').run('scan',{home:state.home,threadIds:ids,cacheFile:path.join(app.getPath('userData'),'scan-cache.json')},progress);core.requireCompleteScan(fresh,state.home,'停止检查',ids);
  const source=await sourceSelection(ref,fresh),bases=state.syncBaselines[key]||={},rows=[];
- for(const tid of ids){const local=fresh.sessions.find(s=>s.id===tid),r=remote?.objects.find(o=>o.id===tid);let status=require('./project-current.cjs').classify(local,r,bases[tid]);
+ for(const tid of ids){const cloudConflict=remote?.cloudConflicts?.find(c=>c.id===tid);if(cloudConflict){rows.push({id:tid,title:cloudConflict.variants[0]?.object.name||tid,status:'cloud-conflict'});continue;}const local=fresh.sessions.find(s=>s.id===tid),r=remote?.objects.find(o=>o.id===tid);let status=require('./project-current.cjs').classify(local,r,bases[tid]);
   if(status==='compare'){
    const target=core.projectStore(storage(config),remote);await core.download(target,{...remote,objects:[r]},[],path.join(app.getPath('userData'),'staging'),progress,{deferCompare:true});
    const mappings=(remote.definition?.roots||[]).map(root=>({sourcePath:root.sourcePath,targetPath:p.rootMap?.[model.canonical(root.sourcePath)]||(root.primary||root.id==='root-0'?p.cwd:root.sourcePath)}));
@@ -59,7 +59,7 @@ async function publishUpdates(config,ref,check){
   progress({stage:'迁移旧版平铺清单并保留全部成员'});const cache=path.join(app.getPath('userData'),'staging');await core.download(storage(config),check.remote,[],cache,progress,{deferCompare:true});const inherited=[];for(const o of check.remote.objects){const s=await require('./session-io.cjs').inspect(path.join(cache,o.hash+'.jsonl'),{previewLimit:0});s.nativeName=o.name;inherited.push(s);}const all=new Map(inherited.map(s=>[s.id,s]));for(const s of selected)all.set(s.id,s);members=[...all.values()];definition=model.define(check.source.profile.name,check.source.profile.cwd,check.source.profile.roots||[],members);for(const r of definition.roots)if(check.remote.definition?.roots.some(old=>(old.id==='root-0'||old.primary)&&model.same(old.sourcePath,r.sourcePath)))r.primary=true;
  }
  const published=await core.publishProject(storage(config),members,id,check.source.profile.name,state.deviceId,undefined,undefined,definition,progress,base);
- const baseline=state.syncBaselines[check.key]||={};for(const s of selected)baseline[s.id]={local:s.digest,cloud:published.objects.find(o=>o.id===s.id).hash};await save();return published;
+ const baseline=state.syncBaselines[check.key]||={};for(const s of selected){const o=published.objects.find(o=>o.id===s.id);if(o&&o.hash===s.digest)baseline[s.id]={local:s.digest,cloud:o.hash};}await save();return published;
 }
 const stateFile=()=>path.join(app.getPath('userData'),'settings.json');
 async function save(){await core.atomic(stateFile(),JSON.stringify(state,null,2));}
@@ -270,6 +270,16 @@ app.whenReady().then(async()=>{
   register('home',async p=>{if(typeof p!=='string'||!path.isAbsolute(p))throw Error('目录无效');state.home=p;plan=[];planProject=null;await save();});
   register('test',async config=>{const projects=await core.initializeLibrary(storage(config));await projects.test();return '云盘连接成功，应用同步目录已自动创建';});
   register('checkProjectUpdates',async(config,ref)=>{const c=await checkUpdates(config,ref);return {rows:c.rows,remote:c.remote};});
+  async function conflictStore(config,ref){const id=state.desktopBindings[desktopBindingKey(config,ref)];if(!id)throw Error('请先关联云端项目');return storage(config).child('SessionDesk').child('projects').child('p-'+id);}
+  register('inspectCloudConflict',async(config,ref,id)=>{
+    const target=await conflictStore(config,ref),current=await require('./project-journal.cjs').load(target),conflict=current?.cloudConflicts.find(c=>c.id===id);if(!conflict)throw Error('云端冲突已变化，请重新检查');
+    const variants=[];for(const v of conflict.variants){const cache=path.join(app.getPath('userData'),'staging');await core.download(target,{...current,objects:[v.object],definition:v.definition},[],cache,progress,{deferCompare:true});variants.push({hash:v.object.hash,deviceId:v.deviceId,created:v.created,...await recentMessages(path.join(cache,v.object.hash+'.jsonl'))});}
+    return {id,expected:current.revisions[id],variants};
+  });
+  register('resolveCloudConflict',async(config,ref,id,hash,expected)=>{
+    const answer=await dialog.showMessageBox(win,{type:'question',buttons:['取消','采用这个版本'],defaultId:0,cancelId:0,message:'将所选版本设为此对话的唯一当前云端版本？',detail:'不会创建分叉对话。此操作只处理云端冲突，之后点击同步更新接收内容。'});if(answer.response!==1)return false;
+    await require('./project-journal.cjs').resolve(await conflictStore(config,ref),id,hash,expected,state.deviceId);return true;
+  });
   register('syncProjectUpdates',async(config,ref)=>{
     const c=await checkUpdates(config,ref);await publishUpdates(config,ref,c);
     const next=await checkUpdates(config,ref),receive=next.rows.filter(r=>['receive','conflict'].includes(r.status)).map(r=>r.id);
@@ -279,7 +289,7 @@ app.whenReady().then(async()=>{
   });
   register('publish',async(config,ref,name,consent)=>{
     if(consent!==true)throw Error('请确认完整会话上传授权');const c=await checkUpdates(config,ref);
-    if(c.rows.some(r=>r.status==='conflict'))throw Error('存在双方更新，请使用一键同步查看并逐条选择冲突版本');
+    if(c.rows.some(r=>['conflict','cloud-conflict'].includes(r.status)))throw Error('存在双方更新，请使用一键同步查看并逐条选择冲突版本');
     return publishUpdates(config,ref,c);
   });
   register('previewFiles',async(config,id)=>{
@@ -302,7 +312,7 @@ app.whenReady().then(async()=>{
   register('catalog',async config=>{commits=await core.discoverProjects(storage(config));return commits.map(c=>{const localRef=desktopBinding(config,c.projectId);return {...c,localRef,localPath:profileFor(localRef)?.cwd||null};});});
   register('bind',async(config,id,cwd)=>{if(!commits.some(c=>c.projectId===id)||!path.isAbsolute(cwd))throw Error('项目或目录无效');const key=bindingKey(config,cwd);if(state.bindings[key]&&state.bindings[key]!==id){const answer=await dialog.showMessageBox(win,{type:'question',buttons:['取消','重新绑定'],defaultId:0,cancelId:0,message:'将此本地目录改绑到另一个云端项目？',detail:cwd+'。不会移动或删除文件，后续恢复目标会改变。'});if(answer.response!==1)return '已取消';delete state.fileBaselines[key];}filePlan=null;plan=[];planProject=null;for(const old of Object.keys(state.bindings)){try{const a=JSON.parse(old);if(old!==key&&bindingKey(config,a[3])===old&&state.bindings[old]===id)delete state.bindings[old];}catch{}}state.bindings[key]=id;await save();return '已接入项目；现在可以查看同步差异';});
   register('download',async(config,id,onlyIds)=>{
-    plan=[];planProject=null;const original=commits.find(c=>c.id===id);if(!original)throw Error('请刷新云端项目');const commit=onlyIds?{...original,objects:original.objects.filter(o=>onlyIds.includes(o.id))}:original;
+    plan=[];planProject=null;const original=commits.find(c=>c.id===id);if(!original)throw Error('请刷新云端项目');if(original.cloudConflicts?.some(c=>!onlyIds||onlyIds.includes(c.id)))throw Error('存在云端并发冲突，请在关联的本机项目点击检查更新并选择保留版本');const commit=onlyIds?{...original,objects:original.objects.filter(o=>onlyIds.includes(o.id))}:original;
     const localRef=desktopBinding(config,commit.projectId),profile=profileFor(localRef),cwd=profile?.cwd;if(!cwd)throw Error('请先关联本机项目');
     if(!profile||profile.mode!=='desktop')throw Error('请先设置本机目录和目标 Codex 项目');
     const home=state.restoreHome||state.home,fresh=await require('./sync-worker.cjs').run('scan',{home,threadIds:commit.objects.map(o=>o.id),cacheFile:path.join(app.getPath('userData'),'scan-cache.json')},progress);

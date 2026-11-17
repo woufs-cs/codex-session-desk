@@ -220,11 +220,7 @@ async function publish(store,sessions,projectId,name,deviceId,fileSnapshot,fileL
   if(fileLink){validateFileLink(fileLink);commit.fileLink={kind:fileLink.kind,url:fileLink.url};}
   onProgress({stage:'发布同步清单'});try{await store.put(`commit-${commit.id}.json`,JSON.stringify(commit));}catch(e){throw Error('发布同步清单失败：'+e.message,{cause:e});}return commit;
 }
-async function catalog(store) {
-  const entries=[];const head=await require('./project-current.cjs').read(store);
-  const keys=head.value?['current.json']:(await store.list()).filter(n=>/^commit-[a-f0-9-]+\.json$/.test(n));
-  for(const key of keys) {
-    const c=head.value||JSON.parse(await store.get(key));
+function validateCommit(c){
     if(![1,2,3].includes(c.schema) || !validId(c.id) || typeof c.created!=='string' || typeof c.name!=='string' || !validId(c.projectId) || !validId(c.deviceId) || !Array.isArray(c.objects) || c.objects.length>10000) throw Error('远端清单格式不兼容');
     for(const o of c.objects) if((o.name!==undefined&&(typeof o.name!=='string'||!o.name.trim()||o.name.length>200))||!validId(o.id)||!/^[a-f0-9]{64}$/.test(o.hash)) throw Error('远端对象标识无效');
     if(new Set(c.objects.map(o=>o.id)).size!==c.objects.length)throw Error('远端项目存在重复对话');
@@ -232,6 +228,15 @@ async function catalog(store) {
     if(c.schema===2||c.schema===3&&c.definition){const m=require('./project-model.cjs');m.validateDefinition(c.definition);for(const o of c.objects)m.validateWorkspace(o.workspace,c.definition);}
     validateFileLink(c.fileLink);
     if(c.fileSnapshot)require('./project-files.cjs').validate(c.fileSnapshot);
+  return c;
+}
+async function catalog(store) {
+  const journal=await require('./project-journal.cjs').load(store);if(journal)return [journal];
+  const entries=[];const head=await require('./project-current.cjs').read(store);
+  const keys=head.value?['current.json']:(await store.list()).filter(n=>/^commit-[a-f0-9-]+\.json$/.test(n));
+  for(const key of keys) {
+    const c=head.value||JSON.parse(await store.get(key));
+    validateCommit(c);
     entries.push(c);
   }
   return entries.sort((a,b)=>require('./time-format.js').newest(a,b));
@@ -281,7 +286,7 @@ async function restoreNew(rows,cache,home,cwd) {
   }
   return results;
 }
-module.exports={MAX_SESSION_BYTES,parse,scan,relation,Store,publish,catalog,download,atomic,uuid,hash,readEnv,restoreNew,mapRecord,requireCompleteScan};
+module.exports={validateCommit,MAX_SESSION_BYTES,parse,scan,relation,Store,publish,catalog,download,atomic,uuid,hash,readEnv,restoreNew,mapRecord,requireCompleteScan};
 
 // Each project owns an independent folder; immutable commits are the discovery records.
 async function initializeLibrary(store) {
@@ -291,12 +296,12 @@ async function initializeLibrary(store) {
 async function publishProject(store,sessions,id,name,device,files,fileLink,definition,onProgress=()=>{},base={}) {
   onProgress({stage:'连接同步库'});
   const projects=await initializeLibrary(store),target=projects.child('p-'+id);
-  await target.ensure();await require('./project-current.cjs').verifyCAS(target);const manifest=files?await require('./project-files.cjs').upload(target,files):undefined;
+  await target.ensure();const manifest=files?await require('./project-files.cjs').upload(target,files):undefined;
   const legacy=require('./project-current.cjs').inheritLegacy(await catalog(target));
   const capture=Object.create(target);capture.put=async(key,data)=>{if(!key.startsWith('commit-'))return target.put(key,data);};
   const candidate=await publish(capture,sessions,id,name,device,manifest,fileLink,definition,onProgress);
   onProgress({stage:'合并完整清单并检查并发发布'});
-  return {...await require('./project-current.cjs').commit(target,candidate,base,legacy,true),library:true};
+  return {...await require('./project-journal.cjs').publish(target,candidate,base,legacy),library:true};
 }
 async function discoverProjects(store) {
   const projects=store.child('SessionDesk').child('projects');let names=[];

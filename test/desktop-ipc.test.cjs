@@ -52,6 +52,13 @@ test('actual IPC keeps same-root projects separate through publish, new-target r
  await ipc.syncProjectUpdates(config,'codex:p1');
  assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'synced');
 
+ // Force two valid sibling publications, then exercise the real conflict IPC.
+ const before=(await ipc.checkProjectUpdates(config,'codex:p1')).remote,target=core.projectStore(new core.Store(config),before);
+ for(const text of ['cloud left','cloud right']){const candidate=await core.publish(target,[core.parse(JSON.stringify({type:'session_meta',payload:{id:'t1',cwd}})+'\n'+message(text))],before.projectId,'p1','other-device');const event={protocol:1,parents:before.heads,supersedes:{t1:before.revisions.t1},candidate},raw=JSON.stringify(event);await target.put('update-'+core.hash(raw)+'.json',raw);}
+ assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'cloud-conflict');
+ const choices=await ipc.inspectCloudConflict(config,'codex:p1','t1');assert.equal(choices.variants.length,2);assert(choices.variants.every(v=>v.messages.length));
+ assert.equal(await ipc.resolveCloudConflict(config,'codex:p1','t1',choices.variants[0].hash,choices.expected),true);
+ assert.notEqual((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'cloud-conflict');
  const flatSessions=['flat-a','flat-b'].map(id=>core.parse(JSON.stringify({type:'session_meta',payload:{id,cwd}})+'\n'+message(id)));
  const flat=await core.publish(new core.Store(config),flatSessions,'flat-project','Old flat','old-device');await ipc.catalog(config);
  await ipc.desktopReceive(config,flat.id,cwd,{name:'p2',targetProjectId:'p2'});
