@@ -5,6 +5,10 @@ const fs=require('node:fs/promises'),native=require('node:fs'),path=require('nod
 const {Readable,Transform}=require('node:stream'),{pipeline}=require('node:stream/promises'),io=require('./session-io.cjs');
 const digest=b=>crypto.createHash('sha256').update(b).digest('hex'),validHash=h=>typeof h==='string'&&/^[a-f0-9]{64}$/.test(h);
 const MAX_REFS=20000,MAX_MANIFEST=4*1024*1024;
+const strongETag=value=>typeof value==='string'&&value.length<=1024&&/^"[\x21\x23-\x7e\x80-\xff]*"$/.test(value);
+function receiptFile(store,a){const base=store.config?.verificationCacheDirectory;if(store.config?.type!=='webdav'||!base||!path.isAbsolute(base))return null;return path.join(base,digest(JSON.stringify([store.url,store.config.username||'',a.key]))+'.json');}
+async function loadReceipt(file,a){if(!file)return null;try{if((await fs.stat(file)).size>4096)return null;const r=JSON.parse(await fs.readFile(file,'utf8'));if(r.version===1&&r.hash===a.hash&&r.size===a.size&&strongETag(r.etag)&&Number.isFinite(r.verifiedAt)&&Date.now()-r.verifiedAt>=0&&Date.now()-r.verifiedAt<30*86400000)return r;}catch{}return null;}
+async function saveReceipt(file,a,response){if(!file)return;try{if(!strongETag(response?.etag)){await fs.rm(file,{force:true});return;}await require('./core.cjs').atomic(file,JSON.stringify({version:1,hash:a.hash,size:a.size,etag:response.etag,verifiedAt:Date.now()}));}catch{/* Cache failure must only cost bandwidth, never weaken verification. */}}
 async function* range(file,start,end){if(end>start)yield* native.createReadStream(file,{start,end:end-1,highWaterMark:65536});}
 async function compress(source,target){await pipeline(Readable.from(source),zlib.createGzip({level:3}),native.createWriteStream(target,{flags:'wx'}));}
 async function unpack(source,target,expected,onProgress=()=>{}){
@@ -34,9 +38,16 @@ async function build(file,dir,onProgress=()=>{}){
 async function publish(store,file,dir,onProgress=()=>{}){
  const pack=await build(file,dir,onProgress);let n=0;
  for(const a of pack.assets){const detail=`资源 ${++n}/${pack.assets.length}`,compressed=path.join(dir,'verify.gz'),plain=path.join(dir,'verify.raw');const report=e=>onProgress({...e,detail});
-  try{let exists=true;try{await store.getFile(a.key,compressed,{stage:'检查云端资源',onProgress:report});}catch(e){if(e.status!==404&&e.code!=='ENOENT')throw e;exists=false;}
-   if(!exists){await store.putFile(a.key,a.file,{stage:'上传压缩资源',onProgress:report});await store.getFile(a.key,compressed,{stage:'下载资源进行校验',onProgress:report});}
+  const receipt=receiptFile(store,a),known=await loadReceipt(receipt,a);let response;
+  try{let exists=true;try{
+    try{response=await store.getFile(a.key,compressed,{stage:known?'确认已校验资源版本':'检查云端资源',onProgress:report,ifNoneMatch:known?.etag});}
+    catch(e){if(e.status!==304||!known)throw e;response=await store.getFile(a.key,compressed,{stage:'重新下载校验资源',onProgress:report});}
+   }catch(e){if(e.status!==404&&e.code!=='ENOENT')throw e;exists=false;}
+   if(known&&response?.notModified&&response.etag===known.etag){onProgress({stage:'复用已校验资源（无需下载）',current:n,total:pack.assets.length,complete:true});continue;}
+   if(receipt)await fs.rm(receipt,{force:true}).catch(()=>{});
+   if(!exists){await store.putFile(a.key,a.file,{stage:'上传压缩资源',onProgress:report});response=await store.getFile(a.key,compressed,{stage:'下载资源进行校验',onProgress:report});}
    onProgress({stage:'校验图片与文字资源',current:n-1,total:pack.assets.length,detail});await unpack(compressed,plain,a);
+   await saveReceipt(receipt,a,response);
   }catch(e){throw Error(`资源 ${n}/${pack.assets.length}（${a.key}）失败：${e.message}`,{cause:e});}
   finally{await fs.rm(compressed,{force:true});await fs.rm(plain,{force:true});}
  }

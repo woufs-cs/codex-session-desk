@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const {Transform}=require('node:stream');
 const {pipeline}=require('node:stream/promises');
 // An active large transfer must not expire merely because five minutes elapsed.
-async function transfer({url,headers={},source,target,maxBytes,onProgress=()=>{},stage='传输'}, {request=require('node:https').request,idleMs=120000,totalMs=7200000}={}) {
+async function transfer({url,headers={},source,target,maxBytes,onProgress=()=>{},stage='传输',ifNoneMatch}, {request=require('node:https').request,idleMs=120000,totalMs=7200000}={}) {
  const uploading=!!source,total=uploading?(await fs.promises.stat(source)).size:undefined;
  if(total>maxBytes)throw Error(`${stage}：对象超过大小限制`);
  let req,res,input,output,idle,deadline,current=0,last=0,expected=total,settled=false;
@@ -16,12 +16,13 @@ async function transfer({url,headers={},source,target,maxBytes,onProgress=()=>{}
    req?.destroy();res?.destroy();input?.destroy();output?.destroy();Promise.all(closed).then(()=>reject(e));};
   const touch=()=>{clearTimeout(idle);idle=setTimeout(()=>fail(Error(`连续 ${idleMs/1000} 秒没有传输进展或服务器响应，请检查网络后重试`)),idleMs);};
   const counter=()=>new Transform({transform(chunk,encoding,callback){current+=chunk.length;if(current>maxBytes){callback(Error('对象超过大小限制'));return;}touch();emit();callback(null,chunk);}});
-  const finish=()=>{if(settled)return;settled=true;cleanup();emit(true);resolve();};
+  const finish=()=>{if(settled)return;settled=true;cleanup();emit(true);resolve({etag:res?.headers.etag,notModified:res?.statusCode===304});};
   touch();deadline=setTimeout(()=>fail(Error('传输超过两小时上限，请检查连接后重试')),totalMs);
   try{
    onProgress({stage,current:0,total:expected,unit:'bytes'});
-   req=request(url,{method:uploading?'PUT':'GET',headers:{...headers,...(uploading?{'Content-Length':total}:{})}},async response=>{
+   req=request(url,{method:uploading?'PUT':'GET',headers:{...headers,...(!uploading&&ifNoneMatch?{'If-None-Match':ifNoneMatch}:{}),...(uploading?{'Content-Length':total}:{})}},async response=>{
     res=response;res.on('error',fail);touch();
+    if(!uploading&&res.statusCode===304&&ifNoneMatch&&res.headers.etag===ifNoneMatch){res.once('end',finish);res.resume();return;}
     if(res.statusCode<200||res.statusCode>=300){const e=Error(`HTTP ${res.statusCode}`);e.status=res.statusCode;fail(e);return;}
     try{
      if(uploading){if(current!==total)throw Error('服务端在上传完成前返回响应');res.resume();res.once('end',finish);return;}

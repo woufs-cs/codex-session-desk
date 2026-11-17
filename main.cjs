@@ -29,7 +29,7 @@ let filePlan=null,directPlan=null;
 const localBinding=(config,id)=>Object.keys(state.bindings).map(k=>{try{const a=JSON.parse(k);return bindingKey(config,a[3])===k&&state.bindings[k]===id?a[3]:null;}catch{return null;}}).find(Boolean);
 const bindingKey=(config,cwd)=>JSON.stringify([config.type,config.type==='webdav'?config.url:config.directory,config.username||'',cwd.toLowerCase()]);
 const scope=c=>`${c.url || ''}\n${c.username || ''}`;
-function storage(config) {return new core.Store({...config,password:config.password||(scope(config)===secretScope?secret:'')});}
+function storage(config) {return new core.Store({...config,verificationCacheDirectory:path.join(app.getPath('userData'),'verified-remote-resources'),password:config.password||(scope(config)===secretScope?secret:'')});}
 const stateFile=()=>path.join(app.getPath('userData'),'settings.json');
 async function save(){await core.atomic(stateFile(),JSON.stringify(state,null,2));}
 let progressAt=0,progressStage='';function progress(value){const now=Date.now();if(!value.done&&!value.complete&&value.stage===progressStage&&now-progressAt<100)return;progressAt=now;progressStage=value.stage;if(win&&!win.isDestroyed())win.webContents.send('sync-progress',value);}

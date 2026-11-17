@@ -159,10 +159,11 @@ class Store {
     const f=path.join(this.config.directory,key);if((await fs.stat(f)).size>4*1024*1024) throw Error('元数据超过 4 MB 限制，请使用文件流接口读取会话');return fs.readFile(f,'utf8');
   }
   async getFile(key,target,options={}) {
-    const temp=target+'.'+uuid()+'.tmp';try{
-      if(this.config.type==='webdav'){await fs.mkdir(path.dirname(temp),{recursive:true});await require('./file-transfer.cjs').transfer({url:this.url+key,headers:{Authorization:'Basic '+Buffer.from(`${this.config.username||''}:${this.config.password||''}`).toString('base64')},target:temp,maxBytes:MAX_SESSION_BYTES,stage:'下载会话',...options});}
+    const temp=target+'.'+uuid()+'.tmp';let receipt;try{
+      if(this.config.type==='webdav'){await fs.mkdir(path.dirname(temp),{recursive:true});receipt=await require('./file-transfer.cjs').transfer({url:this.url+key,headers:{Authorization:'Basic '+Buffer.from(`${this.config.username||''}:${this.config.password||''}`).toString('base64')},target:temp,maxBytes:MAX_SESSION_BYTES,stage:'下载会话',...options});}
       else await io.writeChunks(temp,io.chunks(path.join(this.config.directory,key)));
-      await fs.rename(temp,target);
+      if(receipt?.notModified)return receipt;
+      await fs.rename(temp,target);return receipt;
     }finally{await fs.rm(temp,{force:true});}
   }
   async putFile(key,source,options={}) {
