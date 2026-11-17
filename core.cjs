@@ -199,26 +199,22 @@ async function publish(store,sessions,projectId,name,deviceId,fileSnapshot,fileL
   const model=require('./project-model.cjs');if(definition)model.validateDefinition(definition);
   const objects=[];
   for(const s of sessions) {
-    let digest;
+    let digest,transport;
     if(s.file&&store.getFile){
       const temp=await fs.mkdtemp(path.join(require('node:os').tmpdir(),'desk-publish-'));
       let stage='准备本地快照';const report=value=>onProgress({...value,detail:s.nativeName||s.title||s.id});
       const step=name=>{stage=name;report({stage});};
-      try{step(stage);const snapshot=path.join(temp,'snapshot.jsonl'),verify=path.join(temp,'verify.jsonl'),before=await fs.stat(s.file);await io.copyAtomic(s.file,snapshot);const after=await fs.stat(s.file);if(before.size!==after.size||before.mtimeMs!==after.mtimeMs)throw Error('会话在发布期间变化，请停止任务后重试');step('校验本地快照');const read=await io.inspect(snapshot,{previewLimit:0,onProgress:report});if(read.id!==s.id||read.cwd!==s.cwd)throw Error('会话身份或目录已变化，请刷新');digest=read.digest;const key='object-'+digest+'.jsonl';
-        let exists=true;step('检查云端已有对象');
-        try{await store.getFile(key,verify,{stage,onProgress:report});}
-        catch(e){if(e.code!=='ENOENT'&&e.status!==404)throw e;exists=false;}
-        if(!exists){step('上传会话');await store.putFile(key,snapshot,{stage,onProgress:report});step('下载上传结果进行校验');await store.getFile(key,verify,{stage,onProgress:report});}
-        step('校验下载内容');if(await io.hashFile(verify,{stage,onProgress:report})!==digest)throw Error('内容哈希不一致，未发布同步清单，请重新上传');
+      try{step(stage);const snapshot=path.join(temp,'snapshot.jsonl'),verify=path.join(temp,'verify.jsonl'),before=await fs.stat(s.file);await io.copyAtomic(s.file,snapshot);const after=await fs.stat(s.file);if(before.size!==after.size||before.mtimeMs!==after.mtimeMs)throw Error('会话在发布期间变化，请停止任务后重试');step('校验本地快照');const read=await io.inspect(snapshot,{previewLimit:0,onProgress:report});if(read.id!==s.id||read.cwd!==s.cwd)throw Error('会话身份或目录已变化，请刷新');digest=read.digest;step('压缩与去重同步');transport=await require('./session-pack.cjs').publish(store,snapshot,temp,report);
       }catch(e){throw Error(`${stage}失败（${s.id}）：${e.message}`,{cause:e});
       }finally{await fs.rm(temp,{recursive:true,force:true});}
     }else{parse(s.raw);digest=hash(s.raw);const key='object-'+digest+'.jsonl';try{if(hash(await store.get(key))!==digest)throw Error('远端已有对象损坏');}catch(e){if(e.code!=='ENOENT'&&e.status!==404)throw e;await store.put(key,s.raw);}if(hash(await store.get(key))!==digest)throw Error('上传校验失败');}
     const workspace=definition?model.locate(s.cwd,definition.roots):undefined;
     if(definition&&!workspace)throw Error('对话不在已定义的目录中');
-    objects.push({id:s.id,hash:digest,...(s.nativeName?{name:s.nativeName}:{}),...(workspace?{workspace}:{})});
+    objects.push({id:s.id,hash:digest,...transport,...(s.nativeName?{name:s.nativeName}:{}),...(workspace?{workspace}:{})});
   }
   const commit={schema:1,projectId,name,deviceId,id:uuid(),created:new Date().toISOString(),objects};
   if(definition){commit.schema=2;commit.definition=definition;}
+  if(objects.some(o=>o.encoding))commit.schema=3;
   if(fileSnapshot)commit.fileSnapshot=fileSnapshot;
   if(fileLink){validateFileLink(fileLink);commit.fileLink={kind:fileLink.kind,url:fileLink.url};}
   onProgress({stage:'发布同步清单'});try{await store.put(`commit-${commit.id}.json`,JSON.stringify(commit));}catch(e){throw Error('发布同步清单失败：'+e.message,{cause:e});}return commit;
@@ -227,10 +223,11 @@ async function catalog(store) {
   const entries=[];
   for(const key of (await store.list()).filter(n=>/^commit-[a-f0-9-]+\.json$/.test(n))) {
     const c=JSON.parse(await store.get(key));
-    if(![1,2].includes(c.schema) || !validId(c.id) || typeof c.created!=='string' || typeof c.name!=='string' || !validId(c.projectId) || !validId(c.deviceId) || !Array.isArray(c.objects) || c.objects.length>10000) throw Error('远端清单格式不兼容');
+    if(![1,2,3].includes(c.schema) || !validId(c.id) || typeof c.created!=='string' || typeof c.name!=='string' || !validId(c.projectId) || !validId(c.deviceId) || !Array.isArray(c.objects) || c.objects.length>10000) throw Error('远端清单格式不兼容');
     for(const o of c.objects) if((o.name!==undefined&&(typeof o.name!=='string'||!o.name.trim()||o.name.length>200))||!validId(o.id)||!/^[a-f0-9]{64}$/.test(o.hash)) throw Error('远端对象标识无效');
     if(new Set(c.objects.map(o=>o.id)).size!==c.objects.length)throw Error('远端项目存在重复对话');
-    if(c.schema===2){const m=require('./project-model.cjs');m.validateDefinition(c.definition);for(const o of c.objects)m.validateWorkspace(o.workspace,c.definition);}
+    for(const o of c.objects)if(o.encoding!==undefined&&(c.schema!==3||o.encoding!=='image-pack-v1'||!/^[a-f0-9]{64}$/.test(o.manifestHash||'')))throw Error('不支持的会话存储格式，请升级 Session Desk');
+    if(c.schema===2||c.schema===3&&c.definition){const m=require('./project-model.cjs');m.validateDefinition(c.definition);for(const o of c.objects)m.validateWorkspace(o.workspace,c.definition);}
     validateFileLink(c.fileLink);
     if(c.fileSnapshot)require('./project-files.cjs').validate(c.fileSnapshot);
     entries.push(c);
@@ -242,7 +239,7 @@ async function download(store,commit,localSessions,cache,onProgress=()=>{},{defe
   for(const o of commit.objects) {onProgress({stage:'下载与校验',current:rows.length,total:commit.objects.length,detail:o.name||o.id});
     const file=path.join(cache,o.hash+'.jsonl');await fs.mkdir(cache,{recursive:true});
     let cached=null;try{cached=await inspect(file,{previewLimit:0});}catch{}
-    if(cached?.digest!==o.hash){cached=null;if(store.getFile)await store.getFile('object-'+o.hash+'.jsonl',file,{stage:'下载会话',onProgress:value=>onProgress({...value,detail:o.name||o.id})});else await atomic(file,await store.get('object-'+o.hash+'.jsonl'));}
+    if(cached?.digest!==o.hash){cached=null;if(o.encoding)await require('./session-pack.cjs').restore(store,o,file,onProgress);else if(store.getFile)await store.getFile('object-'+o.hash+'.jsonl',file,{stage:'下载会话',onProgress:value=>onProgress({...value,detail:o.name||o.id})});else await atomic(file,await store.get('object-'+o.hash+'.jsonl'));}
     onProgress({stage:'校验下载内容',detail:o.name||o.id});const s=cached||await inspect(file,{previewLimit:0,onProgress:value=>onProgress({...value,detail:o.name||o.id})}).catch(e=>{throw Error('下载校验失败：'+e.message);});if(s.digest!==o.hash)throw Error('下载校验失败，停止应用');if(s.id!==o.id)throw Error('会话 ID 与清单不符');
     if(commit.definition){const m=require('./project-model.cjs');const sourceMap=Object.fromEntries(commit.definition.roots.map(r=>[r.id,r.sourcePath]));if(!m.same(m.targetPath(o.workspace,commit.definition,sourceMap),s.cwd))throw Error('清单中的工作目录与对话记录不一致');}
     const matches=localSessions.filter(x=>x.id===s.id);

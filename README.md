@@ -4,7 +4,7 @@
 
 > 独立社区项目，与 OpenAI 无隶属关系。当前为 Windows x64 / macOS 预览版，原生项目接口仍可能随 Codex 版本变化。首次使用前请备份 Codex 数据。
 
-[下载最新版 Windows / macOS](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.10) · [报告问题](https://github.com/woufs-cs/codex-session-desk/issues)
+[下载最新版 Windows / macOS](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.11) · [报告问题](https://github.com/woufs-cs/codex-session-desk/issues)
 
 ![项目与对话界面](docs/images/projects.png)
 
@@ -23,13 +23,15 @@
 
 ## 下载与启动
 
-当前预览版 **0.16.0-beta.10**：修复大文件传输的固定 5 分钟超时。上传、下载读回校验及内容校验显示字节进度，失败时说明阶段。持续传输可运行最多 2 小时，连续 2 分钟没有传输进展或服务器响应才判为停滞；单会话仍限 512 MB。上传完成后还需下载读回并校验，校验通过才发布同步清单。重试遇到云端已有完整对象时会校验复用，尚不支持部分文件断点续传。
+当前预览版 **0.16.0-beta.11**：对话文字与图片资源分别无损压缩；同一云端项目内，字节相同的内嵌图片跨对话、跨版本复用。接收时完整还原原始字节并验证整份会话 SHA-256。新版仍可读取旧版同步记录；新格式需两端都升级，旧记录不会自动删除或改写。相同图片采用原始 JSON 编码判定，不同转义形式不会强行合并。
 
-- [Windows Setup 安装版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.10/SessionDesk-0.16.0-beta.10-Setup-win-x64.exe)
-- [Windows 单文件便携 EXE](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.10/SessionDesk-0.16.0-beta.10-portable-win-x64.exe)
-- [Apple Silicon Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.10/SessionDesk-0.16.0-beta.10-mac-arm64.dmg)
-- [Intel Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.10/SessionDesk-0.16.0-beta.10-mac-x64.dmg)
-- [全部附件、校验文件及验收限制](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.10)
+上传资源后会读回校验，再发布重建清单与项目版本。接收缓存已校验的资源以减少重复下载；上传重试会检查并校验已存在资源。不会缩图、降低画质或删除历史。单会话还原后上限仍为 512 MB，传输进度与停滞检测继续保留。
+
+- [Windows Setup 安装版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.11/SessionDesk-0.16.0-beta.11-Setup-win-x64.exe)
+- [Windows 单文件便携 EXE](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.11/SessionDesk-0.16.0-beta.11-portable-win-x64.exe)
+- [Apple Silicon Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.11/SessionDesk-0.16.0-beta.11-mac-arm64.dmg)
+- [Intel Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.11/SessionDesk-0.16.0-beta.11-mac-x64.dmg)
+- [全部附件、校验文件及验收限制](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.11)
 
 Mac 安装：打开 DMG，把应用拖入 Applications。包未签名／公证，必要时在系统“隐私与安全性”中允许打开。应用自带运行环境，无需安装 Node.js；仍需检测本机 Codex 连接程序。
 
@@ -47,7 +49,7 @@ Mac 安装：打开 DMG，把应用拖入 Applications。包未签名／公证�
 
 当前预览版同时提供 Setup 和单文件 portable EXE。
 
-也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.10) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
+也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.11) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
 
 1. 将这个 EXE 放到任意可写位置，例如 D 盘工具目录，双击即可启动。
 2. 无需安装、无需手动解压，不需要把 DLL 或 resources 文件夹放在旁边。
@@ -238,9 +240,9 @@ npm run dist:portable
 
 这是尚未经过 Mac 真机验收的预览源码；上方 0.15.6 是已发布的 Windows 稳定版本。Mac 首版不强制终止进程，未签名的构建也可能受到系统打开限制。详细安装、同步、打包和测试步骤见 [macOS 使用指南](docs/macos.md)。
 
-## 0.16.0-beta.10：桌面登记与单版本接收
+## 0.16.0-beta.11：桌面登记与单版本接收
 
-下载：[Windows / macOS 安装包](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.10)。Windows 选择 Setup EXE（安装版）或 portable EXE（便携版）；Apple Silicon 选择 mac-arm64.dmg，Intel Mac 选择 mac-x64.dmg，将应用拖入 Applications。Mac 包未签名或公证，系统可能要求在“隐私与安全性”中明确允许打开；不需要关闭系统安全功能。连接程序仍使用本机 Codex CLI，安装包不包含账号或用户配置。
+下载：[Windows / macOS 安装包](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.11)。Windows 选择 Setup EXE（安装版）或 portable EXE（便携版）；Apple Silicon 选择 mac-arm64.dmg，Intel Mac 选择 mac-x64.dmg，将应用拖入 Applications。Mac 包未签名或公证，系统可能要求在“隐私与安全性”中明确允许打开；不需要关闭系统安全功能。连接程序仍使用本机 Codex CLI，安装包不包含账号或用户配置。
 
 接收冲突逐条选“保留本机”或“采用云端，替换本机”，同一 ID 仅保留当前版本，不再自动分叉、不保存永久对话备份。选择本机后，需发布本机快照，再由另一台接收。云端已有快照及本机历史分叉不会自动删除。
 
