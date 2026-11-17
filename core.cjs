@@ -132,10 +132,10 @@ class Store {
       this.url=url.href.replace(/\/+$/,'')+'/';
     } else if(!path.isAbsolute(config.directory || '')) throw Error('请选择绝对路径的同步库目录');
   }
-  async request(key,method='GET',body,stream=false) {
+  async request(key,method='GET',body,stream=false,extraHeaders={}) {
     const headers={Authorization:'Basic '+Buffer.from(`${this.config.username || ''}:${this.config.password || ''}`).toString('base64')};
     if(method==='PROPFIND') headers.Depth='1';
-    const response=await fetch(this.url+key,{method,body,headers,...(stream?{duplex:'half'}:{}),redirect:'error',signal:AbortSignal.timeout(method==='GET'||method==='PUT'?300000:30000)});
+    const response=await fetch(this.url+key,{method,body,headers:{...headers,...extraHeaders},...(stream?{duplex:'half'}:{}),redirect:'error',signal:AbortSignal.timeout(method==='GET'||method==='PUT'?300000:30000)});
     if(!response.ok) {const e=Error(`WebDAV ${method}: HTTP ${response.status}`);e.status=response.status;throw e;}
     return response;
   }
@@ -221,9 +221,10 @@ async function publish(store,sessions,projectId,name,deviceId,fileSnapshot,fileL
   onProgress({stage:'发布同步清单'});try{await store.put(`commit-${commit.id}.json`,JSON.stringify(commit));}catch(e){throw Error('发布同步清单失败：'+e.message,{cause:e});}return commit;
 }
 async function catalog(store) {
-  const entries=[];
-  for(const key of (await store.list()).filter(n=>/^commit-[a-f0-9-]+\.json$/.test(n))) {
-    const c=JSON.parse(await store.get(key));
+  const entries=[];const head=await require('./project-current.cjs').read(store);
+  const keys=head.value?['current.json']:(await store.list()).filter(n=>/^commit-[a-f0-9-]+\.json$/.test(n));
+  for(const key of keys) {
+    const c=head.value||JSON.parse(await store.get(key));
     if(![1,2,3].includes(c.schema) || !validId(c.id) || typeof c.created!=='string' || typeof c.name!=='string' || !validId(c.projectId) || !validId(c.deviceId) || !Array.isArray(c.objects) || c.objects.length>10000) throw Error('远端清单格式不兼容');
     for(const o of c.objects) if((o.name!==undefined&&(typeof o.name!=='string'||!o.name.trim()||o.name.length>200))||!validId(o.id)||!/^[a-f0-9]{64}$/.test(o.hash)) throw Error('远端对象标识无效');
     if(new Set(c.objects.map(o=>o.id)).size!==c.objects.length)throw Error('远端项目存在重复对话');
@@ -287,24 +288,28 @@ async function initializeLibrary(store) {
   const library=store.child('SessionDesk');await library.ensure();
   const projects=library.child('projects');await projects.ensure();return projects;
 }
-async function publishProject(store,sessions,id,name,device,files,fileLink,definition,onProgress=()=>{}) {
+async function publishProject(store,sessions,id,name,device,files,fileLink,definition,onProgress=()=>{},base={}) {
   onProgress({stage:'连接同步库'});
   const projects=await initializeLibrary(store),target=projects.child('p-'+id);
-  await target.ensure();const manifest=files?await require('./project-files.cjs').upload(target,files):undefined;
-  return {...await publish(target,sessions,id,name,device,manifest,fileLink,definition,onProgress),library:true};
+  await target.ensure();await require('./project-current.cjs').verifyCAS(target);const manifest=files?await require('./project-files.cjs').upload(target,files):undefined;
+  const legacy=require('./project-current.cjs').inheritLegacy(await catalog(target));
+  const capture=Object.create(target);capture.put=async(key,data)=>{if(!key.startsWith('commit-'))return target.put(key,data);};
+  const candidate=await publish(capture,sessions,id,name,device,manifest,fileLink,definition,onProgress);
+  onProgress({stage:'合并完整清单并检查并发发布'});
+  return {...await require('./project-current.cjs').commit(target,candidate,base,legacy,true),library:true};
 }
 async function discoverProjects(store) {
   const projects=store.child('SessionDesk').child('projects');let names=[];
   try {names=await projects.list();}catch(e){if(e.status!==404&&e.code!=='ENOENT')throw e;}
   const result=[];
   for(const name of [...new Set(names)].filter(n=>/^p-[a-zA-Z0-9_-]{1,100}$/.test(n))) {
-    for(const commit of await catalog(projects.child(name))) {
+    for(const commit of [require('./project-current.cjs').inheritLegacy(await catalog(projects.child(name)))].filter(Boolean)) {
       if('p-'+commit.projectId!==name)throw Error('项目目录与版本身份不匹配');
       result.push({...commit,library:true});
     }
   }
   // Read older flat stores without moving or deleting their data.
-  for(const commit of await catalog(store))result.push({...commit,library:false});
+  const flat=new Map();for(const c of await catalog(store)){if(!flat.has(c.projectId))flat.set(c.projectId,[]);flat.get(c.projectId).push(c);}for(const list of flat.values())if(!result.some(c=>c.projectId===list[0].projectId))result.push({...require('./project-current.cjs').inheritLegacy(list),library:false});
   return result.sort((a,b)=>require('./time-format.js').newest(a,b));
 }
 function projectStore(store,commit){return commit.library?store.child('SessionDesk').child('projects').child('p-'+commit.projectId):store;}

@@ -23,6 +23,7 @@ async function sourceSelection(cwd,fresh){
 }
 // Software rendering avoids driver-specific initialization failures on Windows.
 if(process.platform==='win32') app.disableHardwareAcceleration();
+const actions={};
 let win,state,sessions=[],commits=[],busy=false,secret='',secretScope='',plan=[];
 let planProject=null,lastRecovery=null;
 let filePlan=null,directPlan=null;
@@ -30,13 +31,44 @@ const localBinding=(config,id)=>Object.keys(state.bindings).map(k=>{try{const a=
 const bindingKey=(config,cwd)=>JSON.stringify([config.type,config.type==='webdav'?config.url:config.directory,config.username||'',cwd.toLowerCase()]);
 const scope=c=>`${c.url || ''}\n${c.username || ''}`;
 function storage(config) {return new core.Store({...config,verificationCacheDirectory:path.join(app.getPath('userData'),'verified-remote-resources'),password:config.password||(scope(config)===secretScope?secret:'')});}
+async function checkUpdates(config,ref){
+ const p=profileFor(ref);if(!p)throw Error('请先保存参与同步的对话');const key=desktopBindingKey(config,ref),id=state.desktopBindings[key];
+ const cloud=id?(await core.catalog(storage(config).child('SessionDesk').child('projects').child('p-'+id)).catch(e=>{if(e.status===404||e.code==='ENOENT')return [];throw e;})):[];
+ let remote=require('./project-current.cjs').inheritLegacy(cloud);if(remote)remote={...remote,library:true};else if(id){const flat=await core.catalog(storage(config)).catch(e=>{if(e.status===404||e.code==='ENOENT')return [];throw e;});const old=require('./project-current.cjs').inheritLegacy(flat.filter(c=>c.projectId===id));if(old)remote={...old,library:false};}const ids=[...new Set([...p.threadIds,...(remote?.objects||[]).map(o=>o.id)])];
+ const fresh=await require('./sync-worker.cjs').run('scan',{home:state.home,threadIds:ids,cacheFile:path.join(app.getPath('userData'),'scan-cache.json')},progress);core.requireCompleteScan(fresh,state.home,'停止检查',ids);
+ const source=await sourceSelection(ref,fresh),bases=state.syncBaselines[key]||={},rows=[];
+ for(const tid of ids){const local=fresh.sessions.find(s=>s.id===tid),r=remote?.objects.find(o=>o.id===tid);let status=require('./project-current.cjs').classify(local,r,bases[tid]);
+  if(status==='compare'){
+   const target=core.projectStore(storage(config),remote);await core.download(target,{...remote,objects:[r]},[],path.join(app.getPath('userData'),'staging'),progress,{deferCompare:true});
+   const mappings=(remote.definition?.roots||[]).map(root=>({sourcePath:root.sourcePath,targetPath:p.rootMap?.[model.canonical(root.sourcePath)]||(root.primary||root.id==='root-0'?p.cwd:root.sourcePath)}));
+   const relation=await require('./sync-worker.cjs').run('compare',{local:{file:local.file},remote:{file:path.join(app.getPath('userData'),'staging',r.hash+'.jsonl')},mappings});status={identical:'synced',ahead:'publish',grow:'receive',conflict:'conflict'}[relation];
+  }
+  if(status==='publish'&&!p.threadIds.includes(tid))status='untracked';
+  if(status==='synced')bases[tid]={local:local.digest,cloud:r.hash};
+  rows.push({id:tid,title:local?.nativeName||local?.title||r?.name||tid,status,localHash:local?.digest,cloudHash:r?.hash});
+ }
+ await save();return {key,id,remote:remote?{...remote,localRef:ref,localPath:p.cwd}:null,rows,source};
+}
+async function publishUpdates(config,ref,check){
+ const pending=new Set(check.rows.filter(r=>r.status==='publish').map(r=>r.id)),selected=check.source.selected.filter(s=>pending.has(s.id));
+ if(!selected.length&&check.remote&&!check.remote.legacyInherited)return check.remote;
+ const id=check.id||core.uuid();state.desktopBindings[check.key]=id;await save();
+ const base=Object.fromEntries(check.rows.filter(r=>r.cloudHash).map(r=>[r.id,r.cloudHash]));
+ let members=selected,definition=check.source.definition;
+ if(check.remote?.library===false){
+  progress({stage:'迁移旧版平铺清单并保留全部成员'});const cache=path.join(app.getPath('userData'),'staging');await core.download(storage(config),check.remote,[],cache,progress,{deferCompare:true});const inherited=[];for(const o of check.remote.objects){const s=await require('./session-io.cjs').inspect(path.join(cache,o.hash+'.jsonl'),{previewLimit:0});s.nativeName=o.name;inherited.push(s);}const all=new Map(inherited.map(s=>[s.id,s]));for(const s of selected)all.set(s.id,s);members=[...all.values()];definition=model.define(check.source.profile.name,check.source.profile.cwd,check.source.profile.roots||[],members);for(const r of definition.roots)if(check.remote.definition?.roots.some(old=>(old.id==='root-0'||old.primary)&&model.same(old.sourcePath,r.sourcePath)))r.primary=true;
+ }
+ const published=await core.publishProject(storage(config),members,id,check.source.profile.name,state.deviceId,undefined,undefined,definition,progress,base);
+ const baseline=state.syncBaselines[check.key]||={};for(const s of selected)baseline[s.id]={local:s.digest,cloud:published.objects.find(o=>o.id===s.id).hash};await save();return published;
+}
 const stateFile=()=>path.join(app.getPath('userData'),'settings.json');
 async function save(){await core.atomic(stateFile(),JSON.stringify(state,null,2));}
 let progressAt=0,progressStage='';function progress(value){const now=Date.now();if(!value.done&&!value.complete&&value.stage===progressStage&&now-progressAt<100)return;progressAt=now;progressStage=value.stage;if(win&&!win.isDestroyed())win.webContents.send('sync-progress',value);}
-function register(name,fn){ipcMain.handle(name,async(_e,...args)=>{if(busy)throw Error('有任务正在进行，请稍候');busy=true;progress({stage:({restore:'准备接收',download:'下载与比较',verifyRecovery:'准备验证'})[name]||'正在处理'});try{return await fn(...args);}finally{busy=false;progress({done:true});}});}
+function register(name,fn){actions[name]=fn;ipcMain.handle(name,async(_e,...args)=>{if(busy)throw Error('有任务正在进行，请稍候');busy=true;progress({stage:({restore:'准备接收',download:'下载与比较',verifyRecovery:'准备验证'})[name]||'正在处理'});try{return await fn(...args);}finally{busy=false;progress({done:true});}});}
 app.whenReady().then(async()=>{
   state=await fs.readFile(stateFile(),'utf8').then(JSON.parse).catch(()=>({deviceId:core.uuid(),home:process.env.CODEX_HOME&&path.isAbsolute(process.env.CODEX_HOME)?process.env.CODEX_HOME:path.join(os.homedir(),'.codex'),bindings:{}}));
   state.conversationProjects ||= {};
+  state.syncBaselines ||= {};
   desktopState.migrate(state);
   state.directProjects ||= {};
   state.directBaselines ||= {};
@@ -237,23 +269,18 @@ app.whenReady().then(async()=>{
   register('choose',async(_kind)=>{filePlan=null;const r=await dialog.showOpenDialog(win,{properties:['openDirectory']});return r.canceled?null:r.filePaths[0];});
   register('home',async p=>{if(typeof p!=='string'||!path.isAbsolute(p))throw Error('目录无效');state.home=p;plan=[];planProject=null;await save();});
   register('test',async config=>{const projects=await core.initializeLibrary(storage(config));await projects.test();return '云盘连接成功，应用同步目录已自动创建';});
-  register('publish',async(config,cwd,name,consent,includeFiles=false)=>{
-    if(consent!==true)throw Error('请确认完整会话上传授权');
-    // Refresh before capture; partial JSONL causes parse failure rather than truncation.
-    const fresh=await require('./sync-worker.cjs').run('scan',{home:state.home,threadIds:profileFor(cwd)?.threadIds,cacheFile:path.join(app.getPath('userData'),'scan-cache.json')},progress);
-    core.requireCompleteScan(fresh,state.home,'停止发布',profileFor(cwd)?.threadIds);
-    const source=await sourceSelection(cwd,fresh),selected=source.selected;
-    let files;
-    if(includeFiles&&state.projectModes[cwd.toLowerCase()]==='git')throw Error('Git 项目的文件请通过提交和推送同步');
-    if(includeFiles){
-      files=await require('./project-files.cjs').capture(cwd,{exclude:state.uploadExclusions[cwd.toLowerCase()]||[]});
-      const confirm=await dialog.showMessageBox(win,{type:'question',buttons:['取消','上传这些文件与会话'],defaultId:0,cancelId:0,message:`将额外上传 ${files.files.length} 个项目文件（${(files.total/1048576).toFixed(1)} MB）`,detail:`排除 ${files.skipped.length} 项。排除规则不是凭据扫描，请确认项目内不含其他秘密。\n文件预览（前 40 个）：\n${files.files.slice(0,40).map(f=>f.path).join('\n')}`});
-      if(confirm.response!==1)throw Error('已取消项目发布');
-    }
-    const key=desktopBindingKey(config,cwd),id=state.desktopBindings[key] || core.uuid();state.desktopBindings[key]=id;await save();
-    const published=await core.publishProject(storage(config),selected,id,source.profile.name,state.deviceId,files,undefined,source.definition,progress);
-    if(files){state.fileBaselines[key]=Object.fromEntries(files.files.map(f=>[f.path,f.hash]));await save();}
-    return published;
+  register('checkProjectUpdates',async(config,ref)=>{const c=await checkUpdates(config,ref);return {rows:c.rows,remote:c.remote};});
+  register('syncProjectUpdates',async(config,ref)=>{
+    const c=await checkUpdates(config,ref);await publishUpdates(config,ref,c);
+    const next=await checkUpdates(config,ref),receive=next.rows.filter(r=>['receive','conflict'].includes(r.status)).map(r=>r.id);
+    if(next.remote){commits=commits.filter(c=>c.projectId!==next.remote.projectId);commits.push(next.remote);}
+    if(receive.length)await actions.download(config,next.remote.id,receive);
+    return {rows:next.rows,receive:receive.length,remote:next.remote};
+  });
+  register('publish',async(config,ref,name,consent)=>{
+    if(consent!==true)throw Error('请确认完整会话上传授权');const c=await checkUpdates(config,ref);
+    if(c.rows.some(r=>r.status==='conflict'))throw Error('存在双方更新，请使用一键同步查看并逐条选择冲突版本');
+    return publishUpdates(config,ref,c);
   });
   register('previewFiles',async(config,id)=>{
     filePlan=null;const commit=commits.find(c=>c.id===id);if(!commit?.fileSnapshot)throw Error('此版本未包含项目文件');
@@ -274,8 +301,8 @@ app.whenReady().then(async()=>{
   register('chooseCodex',async()=>{const result=await dialog.showOpenDialog(win,{title:'选择 Codex CLI 可执行文件',properties:['openFile'],...(process.platform==='win32'?{filters:[{name:'Codex CLI',extensions:['exe']}]}:{})});if(result.canceled)return '已取消';const found=await require('./codex-cli.cjs').check(result.filePaths[0]);state.codexPath=found.path;await save();return `${found.version}\n${found.path}`;});
   register('catalog',async config=>{commits=await core.discoverProjects(storage(config));return commits.map(c=>{const localRef=desktopBinding(config,c.projectId);return {...c,localRef,localPath:profileFor(localRef)?.cwd||null};});});
   register('bind',async(config,id,cwd)=>{if(!commits.some(c=>c.projectId===id)||!path.isAbsolute(cwd))throw Error('项目或目录无效');const key=bindingKey(config,cwd);if(state.bindings[key]&&state.bindings[key]!==id){const answer=await dialog.showMessageBox(win,{type:'question',buttons:['取消','重新绑定'],defaultId:0,cancelId:0,message:'将此本地目录改绑到另一个云端项目？',detail:cwd+'。不会移动或删除文件，后续恢复目标会改变。'});if(answer.response!==1)return '已取消';delete state.fileBaselines[key];}filePlan=null;plan=[];planProject=null;for(const old of Object.keys(state.bindings)){try{const a=JSON.parse(old);if(old!==key&&bindingKey(config,a[3])===old&&state.bindings[old]===id)delete state.bindings[old];}catch{}}state.bindings[key]=id;await save();return '已接入项目；现在可以查看同步差异';});
-  register('download',async(config,id)=>{
-    plan=[];planProject=null;const commit=commits.find(c=>c.id===id);if(!commit)throw Error('请刷新云端项目');
+  register('download',async(config,id,onlyIds)=>{
+    plan=[];planProject=null;const original=commits.find(c=>c.id===id);if(!original)throw Error('请刷新云端项目');const commit=onlyIds?{...original,objects:original.objects.filter(o=>onlyIds.includes(o.id))}:original;
     const localRef=desktopBinding(config,commit.projectId),profile=profileFor(localRef),cwd=profile?.cwd;if(!cwd)throw Error('请先关联本机项目');
     if(!profile||profile.mode!=='desktop')throw Error('请先设置本机目录和目标 Codex 项目');
     const home=state.restoreHome||state.home,fresh=await require('./sync-worker.cjs').run('scan',{home,threadIds:commit.objects.map(o=>o.id),cacheFile:path.join(app.getPath('userData'),'scan-cache.json')},progress);
@@ -283,7 +310,7 @@ app.whenReady().then(async()=>{
     const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('请先连接 Codex');const targetInventory=await rpc.inventory(found.path,home);
     const rows=await core.download(core.projectStore(storage(config),commit),commit,fresh.sessions,path.join(app.getPath('userData'),'staging'),progress,{deferCompare:true,inspect:file=>require('./sync-worker.cjs').run('inspectMetadata',{file})});
     const definition=commit.definition||model.define(commit.name,rows[0]?.sourceCwd||cwd,[],rows.map(r=>({cwd:r.sourceCwd})));
-    const mapping={};for(const root of definition.roots)mapping[root.id]=profile.rootMap?.[model.canonical(root.sourcePath)]||(model.same(root.sourcePath,cwd)?cwd:null);
+    const mapping={};for(const root of definition.roots)mapping[root.id]=profile.rootMap?.[model.canonical(root.sourcePath)]||(model.same(root.sourcePath,cwd)||root.primary||root.id==='root-0'?cwd:null);
     plan=model.preview(rows.map(r=>({...r,workspace:r.workspace||model.locate(r.sourceCwd,definition.roots)})),definition,mapping);
     for(const row of plan){row.localName=targetInventory.threads.find(t=>t.id===row.id)?.nativeName||null;row.namePolicy=row.status==='new'?'remote':'local';row.rootMappings=definition.roots.filter(r=>mapping[r.id]).map(r=>({sourcePath:r.sourcePath,targetPath:mapping[r.id]}));const local=fresh.sessions.find(s=>s.id===row.id);if(local){row.localFile=local.file;row.localDigest=local.digest;row.status=await require('./sync-worker.cjs').run('compare',{local:{file:local.file},remote:{file:path.join(app.getPath('userData'),'staging',row.hash+'.jsonl')},mappings:row.rootMappings});}if(local&&row.targetCwd&&!model.same(local.cwd,row.targetCwd))row.mappingError='已有对话工作目录不同：'+local.cwd;}
     const settings={home,mode:profile.mode,projectId:profile.targetProjectId||null,name:profile.name,roots:Object.values(mapping).filter(Boolean),syncId:commit.projectId,key:'session-desk-'+core.hash(JSON.stringify([config.type,config.url||config.directory,config.username||'',commit.projectId,home]))};
@@ -312,7 +339,7 @@ app.whenReady().then(async()=>{
     try{
       const result=await require('./project-sync.cjs').finish(found.path,lastRecovery,async id=>{lastRecovery.projectSettings.projectId=id;const p=desktopState.get(state,lastRecovery.localRef,lastRecovery.sourceHome||state.home);if(p)p.targetProjectId=id;state.lastRecovery=lastRecovery;await save();},progress);
       lastRecovery.verification=result;state.lastRecovery=lastRecovery;await save();await core.atomic(lastRecovery.reportPath,JSON.stringify(lastRecovery,null,2));await core.atomic(path.join(path.dirname(lastRecovery.reportPath),'discovery.json'),JSON.stringify(result,null,2));
-      const p=desktopState.get(state,lastRecovery.localRef,lastRecovery.sourceHome||state.home);if(p&&model.same(lastRecovery.home,lastRecovery.sourceHome||state.home)){p.threadIds=[...new Set([...p.threadIds,...result.results.filter(r=>r.readable&&r.pathMatches&&r.membership).map(r=>r.id)])];if((result.nativeComplete||result.complete)&&result.projectId){p.sourceProjectId=result.projectId;p.targetProjectId=result.projectId;const ref='codex:'+result.projectId,old=lastRecovery.localRef,home=lastRecovery.sourceHome||state.home;state.desktopProjects[desktopState.key(home,ref)]=p;if(old!==ref){delete state.desktopProjects[desktopState.key(home,old)];for(const k of Object.keys(state.desktopBindings)){const a=JSON.parse(k);if(a[3]===model.canonical(home)&&a[4]===old){a[4]=ref;state.desktopBindings[JSON.stringify(a)]=state.desktopBindings[k];delete state.desktopBindings[k];}}lastRecovery.localRef=ref;}}await save();}
+      const p=desktopState.get(state,lastRecovery.localRef,lastRecovery.sourceHome||state.home);if(p&&model.same(lastRecovery.home,lastRecovery.sourceHome||state.home)){p.threadIds=[...new Set([...p.threadIds,...result.results.filter(r=>r.readable&&r.pathMatches&&r.membership).map(r=>r.id)])];if((result.nativeComplete||result.complete)&&result.projectId){p.sourceProjectId=result.projectId;p.targetProjectId=result.projectId;const ref='codex:'+result.projectId,old=lastRecovery.localRef,home=lastRecovery.sourceHome||state.home;state.desktopProjects[desktopState.key(home,ref)]=p;if(old!==ref){delete state.desktopProjects[desktopState.key(home,old)];for(const k of Object.keys(state.desktopBindings)){const a=JSON.parse(k);if(a[3]===model.canonical(home)&&a[4]===old){a[4]=ref;state.desktopBindings[JSON.stringify(a)]=state.desktopBindings[k];if(state.syncBaselines[k]){state.syncBaselines[JSON.stringify(a)]=state.syncBaselines[k];delete state.syncBaselines[k];}delete state.desktopBindings[k];}}lastRecovery.localRef=ref;}}await save();}
       if(result.mode==='desktop'&&result.nativeComplete)return result.desktopRegistration?.registered?'底层接收完成，桌面登记已更新。请重新打开 Codex，核对侧栏项目与对话；侧栏显示尚未经自动验证。':'底层接收完成，但桌面登记未完成：'+(result.desktopRegistration?.error||'未验证')+'。退出 Codex 后重试验证，无需重复接收。';
       return (result.complete?'内容、目录'+(result.mode==='desktop'?'及原生项目归属均已验证':'已验证（CLI 模式，不修改项目归属）'):'内容已恢复，部分目录或归属验证未完成，请查看结果并重试')+'。接收报告：'+lastRecovery.reportPath;
     }catch(e){lastRecovery.verification={complete:false,error:e.message};state.lastRecovery=lastRecovery;await save();return '内容已恢复，原生识别或归属仍待完成：'+e.message+'。可点击重试验证；接收报告：'+lastRecovery.reportPath;}
@@ -323,12 +350,19 @@ app.whenReady().then(async()=>{
     if(desktopBinding(planProject.config,planProject.id)!==planProject.localRef)throw Error('项目绑定已变化，请重新比较');
     for(const p of [...new Set([...planProject.settings.roots,...plan.map(r=>r.targetCwd)])])if(!(await fs.stat(p).catch(()=>null))?.isDirectory())throw Error('工作目录不存在，请先准备项目文件：'+p);
     const found=await require('./codex-cli.cjs').detect(state.codexPath);if(!found)throw Error('未找到 Codex CLI，无法完成原生恢复；请先到设置安装或选择');
+    const latest=require('./project-current.cjs').inheritLegacy(await core.catalog(core.projectStore(storage(planProject.config),{projectId:planProject.id,library:commits.find(c=>c.id===planProject.commitId)?.library})));if(!latest||plan.some(r=>latest.objects.find(o=>o.id===r.id)?.hash!==r.hash))throw Error('云端对话在预览后发生变化，请重新检查更新');
     const answer=await dialog.showMessageBox(win,{type:'question',buttons:['取消','按预览接收'],defaultId:0,cancelId:0,checkboxLabel:'自动关闭 Codex 桌面端，接收结束后重新打开（请先结束活动任务）',checkboxChecked:false,message:'按逐条选择的方案接收对话？',detail:'目标数据目录：'+planProject.home+'\n本地目录：'+planProject.cwd+'\n不传输项目文件。同一对话保留一个版本，不创建分叉或永久历史备份；未选择自动关闭时，请自行退出 Codex。不会强制结束 CLI 或活动进程。'});if(!answer.response)return '已取消';
     return require('./codex-lifecycle.cjs').manage(answer.checkboxChecked,async()=>{
     await requireStopped();
     await rpc.withClient(found.path,planProject.home,request=>require('./project-sync.cjs').preflight(request,planProject.settings,plan));
     const result=await require('./sync-worker.cjs').run('receive',{rows:plan,cache:path.join(app.getPath('userData'),'staging'),home:planProject.home,cwd:planProject.cwd,options:{perRow:true}},progress);
     const byId=new Map(plan.map(r=>[r.id,r])),sourceRow=r=>byId.get(r.sourceId||r.id);
+    if(model.same(planProject.home,state.home)){
+      const baseline=state.syncBaselines[desktopBindingKey(planProject.config,planProject.localRef)]||={};
+      for(const r of result.results){const row=sourceRow(r),file=result.sessionFiles?.[r.id];if(!row||!file||!['imported','updated','identical','ahead','kept-local'].includes(r.status))continue;
+        baseline[r.id]={cloud:row.hash,local:['ahead','kept-local'].includes(r.status)?null:await require('./session-io.cjs').hashFile(file)};
+      }
+    }
     const expectedNames={};for(const r of result.results){const row=sourceRow(r);if(row?.remoteName&&(row.namePolicy==='remote'||r.status==='imported')&&r.status!=='conflict')expectedNames[r.id]=row.remoteName;}
     lastRecovery={...result,expectedNames,expectedTitles:Object.fromEntries(result.results.map(r=>[r.id,sourceRow(r)?.title||r.id])),localRef:planProject.localRef,cwd:planProject.cwd,sourceHome:state.home,expectedDirectories:Object.fromEntries(result.results.map(r=>[r.id,sourceRow(r)?.targetCwd])),projectSettings:planProject.settings};state.lastRecovery=lastRecovery;await save();await core.atomic(lastRecovery.reportPath,JSON.stringify(lastRecovery,null,2));plan=[];planProject=null;
     return completeRecovery(found);

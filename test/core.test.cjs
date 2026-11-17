@@ -37,16 +37,16 @@ test('two independent devices share project, retain snapshots and detect corrupt
 test('credentials in URLs and insecure WebDAV are refused',()=>{assert.throws(()=>new Store({type:'webdav',url:'http://example.org'}));assert.throws(()=>new Store({type:'webdav',url:'https://user:pass@example.org'}));});
 test('failed upload never publishes a commit',async()=>{const names=[];const store={get:async()=>{const e=Error();e.status=404;throw e;},put:async k=>{names.push(k);throw Error('offline');}};await assert.rejects(publish(store,[parse(raw('s'))],'p','name','d'));assert.equal(names.some(n=>n.startsWith('commit-')),false);});
 test('WebDAV uses authenticated requests, rejects redirects and validates round trip',async t=>{const original=global.fetch;const files=new Map();t.after(()=>{global.fetch=original;});global.fetch=async(url,options)=>{assert.equal(options.redirect,'error');assert.equal(options.headers.Authorization,'Basic '+Buffer.from('user:secret').toString('base64'));const name=new URL(url).pathname.split('/').at(-1);if(options.method==='PUT'){files.set(name,options.body);return new Response(null,{status:201});}if(options.method==='DELETE'){files.delete(name);return new Response(null,{status:204});}if(options.method==='PROPFIND')return new Response('<d:multistatus xmlns:d="DAV:"><d:response><d:href>/vault/commit-abcd.json</d:href></d:response></d:multistatus>',{status:207});return new Response(files.get(name)||'',{status:files.has(name)?200:404});};const store=new Store({type:'webdav',url:'https://example.org/vault/',username:'user',password:'secret'});await store.test();assert.equal(files.size,0);assert.deepEqual(await store.list(),['commit-abcd.json']);});
-test('one cloud project carries files and conversations while later partial updates retain both histories',async t=>{
+test('one cloud project carries files and conversations while later partial updates retain one complete current version',async t=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'desk-combined-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
   const files=require('../project-files.cjs'),source=path.join(root,'source');await fs.mkdir(source);await fs.writeFile(path.join(source,'notes.txt'),'project resource');
   const store=new Store({type:'local',directory:path.join(root,'cloud')});
   const combined=await publishProject(store,[parse(raw('combined'))],'combined-project','demo','device-a',await files.capture(source));
   await publishProject(store,[parse(raw('combined'))],'combined-project','demo','device-b');
-  const discovered=await discoverProjects(store);assert.equal(discovered.length,2);assert.equal(new Set(discovered.map(c=>c.projectId)).size,1);
+  const discovered=await discoverProjects(store);assert.equal(discovered.length,1);assert.equal(new Set(discovered.map(c=>c.projectId)).size,1);
   const withFiles=discovered.find(c=>c.fileSnapshot);assert.equal(withFiles.fileSnapshot.files[0].path,'notes.txt');assert.equal(withFiles.objects.length,1);
   assert.equal((await download(projectStore(store,withFiles),withFiles,[],path.join(root,'cache')))[0].status,'new');
-  assert.equal(combined.id,withFiles.id);
+  assert.notEqual(combined.id,withFiles.id);assert.equal(withFiles.revision,2);
 });
 
 test('WebDAV rejects unusable endpoints with actionable errors before sending credentials',()=>{

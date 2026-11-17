@@ -30,5 +30,33 @@ test('actual IPC keeps same-root projects separate through publish, new-target r
  assert.equal((await ipc.recoveryStatus()).verification.complete,true);
  ipc=await boot();catalog=await ipc.catalog(config);assert.equal(catalog.find(c=>c.id===remote.id).localRef,'codex:created');await ipc.download(config,remote.id);assert.equal((await ipc.conversationPlan()).rows[0].status,'identical');
  const republished=await ipc.publish(config,'codex:created','',true,false);assert.equal(republished.projectId,remote.projectId);assert.equal(republished.objects[0].id,'t3');
+ assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'synced');
+ const localFile=path.join(home,'sessions','t1.jsonl'),message=text=>JSON.stringify({type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text}]}})+'\n';
+ await fs.appendFile(localFile,message('local update'));
+ assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'publish');
+ assert.equal((await ipc.syncProjectUpdates(config,'codex:p1')).receive,0);
+ let cloudCurrent=(await ipc.catalog(config)).find(c=>c.projectId===first.projectId);
+ let remoteRaw=await fs.readFile(localFile,'utf8')+message('remote update');
+ let remoteSession=core.parse(remoteRaw);
+ await core.publishProject(new core.Store(config),[remoteSession],first.projectId,'p1','other',undefined,undefined,require('../project-model.cjs').define('p1',cwd,[],[remoteSession]),()=>{},{t1:cloudCurrent.objects[0].hash});
+ assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'receive');
+ assert.equal((await ipc.syncProjectUpdates(config,'codex:p1')).receive,1);
+ await ipc.restore();assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'synced');
+ cloudCurrent=(await ipc.catalog(config)).find(c=>c.projectId===first.projectId);
+ remoteRaw=await fs.readFile(localFile,'utf8')+message('remote conflict');remoteSession=core.parse(remoteRaw);
+ await fs.appendFile(localFile,message('local conflict'));
+ await core.publishProject(new core.Store(config),[remoteSession],first.projectId,'p1','other',undefined,undefined,require('../project-model.cjs').define('p1',cwd,[],[remoteSession]),()=>{},{t1:cloudCurrent.objects[0].hash});
+ assert.equal((await ipc.syncProjectUpdates(config,'codex:p1')).rows[0].status,'conflict');
+ await ipc.setConflictPolicy('t1','local');await ipc.restore();
+ assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'publish');
+ await ipc.syncProjectUpdates(config,'codex:p1');
+ assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'synced');
+
+ const flatSessions=['flat-a','flat-b'].map(id=>core.parse(JSON.stringify({type:'session_meta',payload:{id,cwd}})+'\n'+message(id)));
+ const flat=await core.publish(new core.Store(config),flatSessions,'flat-project','Old flat','old-device');await ipc.catalog(config);
+ await ipc.desktopReceive(config,flat.id,cwd,{name:'p2',targetProjectId:'p2'});
+ const migrated=await ipc.syncProjectUpdates(config,'codex:p2');assert.equal(migrated.remote.objects.length,3);assert.equal(migrated.receive,2);
+ assert.equal((await ipc.catalog(config)).filter(c=>c.projectId==='flat-project').length,1);
+
 });
 

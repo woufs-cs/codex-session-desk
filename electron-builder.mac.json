@@ -22,6 +22,7 @@
     "session-io.cjs",
     "file-transfer.cjs",
     "session-pack.cjs",
+    "project-current.cjs",
     "sync-worker.cjs",
     "codex-lifecycle.cjs",
     "mac-lifecycle.cjs",
