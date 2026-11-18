@@ -46,11 +46,16 @@ test('actual IPC keeps same-root projects separate through publish, new-target r
  remoteRaw=await fs.readFile(localFile,'utf8')+message('remote conflict');remoteSession=core.parse(remoteRaw);
  await fs.appendFile(localFile,message('local conflict'));
  await core.publishProject(new core.Store(config),[remoteSession],first.projectId,'p1','other',undefined,undefined,require('../project-model.cjs').define('p1',cwd,[],[remoteSession]),()=>{},{t1:cloudCurrent.objects[0].hash});
- assert.equal((await ipc.syncProjectUpdates(config,'codex:p1')).rows[0].status,'conflict');
- await ipc.setConflictPolicy('t1','local');await ipc.restore();
- assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'publish');
- await ipc.syncProjectUpdates(config,'codex:p1');
+ const conflicts=await ipc.syncProjectUpdates(config,'codex:p1');assert.equal(conflicts.rows[0].status,'conflict');assert.equal(conflicts.needsChoices,true);assert.equal(conflicts.receive,0);assert.equal(await ipc.conversationPlan(),null);
+ let expected=conflicts.rows[0];const sides=await ipc.inspectProjectConflict(config,'codex:p1','t1',expected);assert(sides.local.messages.some(m=>m.text.includes('local conflict')));assert(sides.remote.messages.some(m=>m.text.includes('remote conflict')));
+ await fs.appendFile(localFile,message('changed after preview'));await assert.rejects(ipc.resolveProjectConflict(config,'codex:p1','t1','local',expected),/版本已变化/);
+ expected=(await ipc.checkProjectUpdates(config,'codex:p1')).rows[0];const localBefore=await fs.readFile(localFile,'utf8');assert.equal((await ipc.resolveProjectConflict(config,'codex:p1','t1','local',expected)).kind,'published');assert.equal(await fs.readFile(localFile,'utf8'),localBefore);assert.equal(await ipc.conversationPlan(),null);
  assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'synced');
+ // Explicit remote choice only prepares this row, with stale-cloud protection.
+ cloudCurrent=(await ipc.catalog(config)).find(c=>c.projectId===first.projectId);remoteSession=core.parse(localBefore+message('remote chosen'));await fs.appendFile(localFile,message('local discarded'));
+ await core.publishProject(new core.Store(config),[remoteSession],first.projectId,'p1','other',undefined,undefined,require('../project-model.cjs').define('p1',cwd,[],[remoteSession]),()=>{},{t1:cloudCurrent.objects[0].hash});
+ expected=(await ipc.checkProjectUpdates(config,'codex:p1')).rows[0];await assert.rejects(ipc.resolveProjectConflict(config,'codex:p1','t1','remote',{...expected,cloudHash:'outdated'}),/版本已变化/);
+ assert.equal((await ipc.resolveProjectConflict(config,'codex:p1','t1','remote',expected)).kind,'receive');const chosenPlan=await ipc.conversationPlan();assert.equal(chosenPlan.rows.length,1);assert.equal(chosenPlan.rows[0].conflictPolicy,'remote');await ipc.restore();assert.match(await fs.readFile(localFile,'utf8'),/remote chosen/);assert.doesNotMatch(await fs.readFile(localFile,'utf8'),/local discarded/);assert.equal((await ipc.checkProjectUpdates(config,'codex:p1')).rows[0].status,'synced');
 
  // Force two valid sibling publications, then exercise the real conflict IPC.
  const before=(await ipc.checkProjectUpdates(config,'codex:p1')).remote,target=core.projectStore(new core.Store(config),before);await ipc.catalog(config);const usage=await ipc.cloudStorageUsage(config,before.projectId);assert(usage.current.files>0);assert.equal(usage.automaticDeletion,false);assert.equal((await ipc.compactCloudMetadata(config,before.projectId)).status,'ready');

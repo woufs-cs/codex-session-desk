@@ -4,7 +4,7 @@
 
 > 独立社区项目，与 OpenAI 无隶属关系。当前为 Windows x64 / macOS 预览版，原生项目接口仍可能随 Codex 版本变化。首次使用前请备份 Codex 数据。
 
-[下载最新版 Windows / macOS](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.15) · [报告问题](https://github.com/woufs-cs/codex-session-desk/issues)
+[下载最新版 Windows / macOS](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.16) · [报告问题](https://github.com/woufs-cs/codex-session-desk/issues)
 
 ![项目与对话界面](docs/images/projects.png)
 
@@ -31,11 +31,17 @@
 
 检查点解压上限 8 MB、传输文件上限 4 MB，超过时继续使用原日志；原日志总读取安全上限保持 32 MB。单个检查点不会无限产生新文件，但日志条数仍会增长。这一阶段主要减少首次读取请求及重复计算，不能保证所有场景固定倍数加速。
 
+## 冲突处理（beta.16）
+
+本机项目点击“检查更新”或“同步更新”后，双方更新的对话旁会显示“查看差异与选择”。展开即可比较双方最后 6 条消息，并直接选择“采用本机并上传”或“采用云端并接收”。本机选择不关闭 Codex、不进入接收流程；云端选择仍需确认替换本机。执行前重新校验本机和云端版本，预览过期时要求重新检查。未勾选的对话不能直接发布。
+
+有未解决冲突时，同步更新会发布其他安全的本机更新，但留在本机项目，不再自动跳到接收页面。冲突解决后，再点击同步更新接收其他待接收对话。原云端项目的手动接收预览继续兼容；日常冲突推荐从本机项目处理。
+
 ## 下载与启动
 
-当前预览版 **0.16.0-beta.15**：项目使用完整当前清单，发布部分对话时继承其余成员；每条对话只维护一个当前云端版本，不自动分叉。不必逐次接收旧快照，直接接收当前清单即可。
+当前预览版 **0.16.0-beta.16**：项目使用完整当前清单，发布部分对话时继承其余成员；每条对话只维护一个当前云端版本，不自动分叉。不必逐次接收旧快照，直接接收当前清单即可。
 
-本机项目中先保存长期参与同步的对话，再点击“检查更新”查看待发布、待接收与双方更新，或点击“同步更新”。无冲突本机更新先发布，云端更新进入接收确认；目录未映射或有冲突时显示预览，需逐条选择。保留本机的冲突在接收确认后会标记待发布，再点击一键同步即可让云端采用该版本。新对话显示“尚未纳入同步”，需勾选保存；取消勾选不代表删除云端对话。
+本机项目中先保存长期参与同步的对话，再点击“检查更新”查看待发布、待接收与双方更新，或点击“同步更新”。无冲突本机更新先发布，云端更新进入接收确认；目录未映射或有冲突时显示预览，需逐条选择。在本机项目的同步状态中点击“查看差异与选择”：采用本机并上传会立即更新云端，无需先接收或再点同步；采用云端并接收仅处理所选对话，并保留关闭 Codex、目录映射与替换确认。新对话显示“尚未纳入同步”，需勾选保存；取消勾选不代表删除云端对话。
 
 发布改用不可变的独立记录，不依赖坚果云不支持的条件写入。不同对话的并发更新自动汇合；同一对话出现两个不同的并发版本时显示“云端并发冲突”，可查看各版本最后 6 条消息并明确选择一个当前版本，不新建分叉对话。记录尚未同步完整时会停止并提示稍后检查。云盘存在传播延迟，其他机器的同时发布可能在下次检查才被发现。
 
@@ -45,11 +51,11 @@
 
 保留流式压缩、图片去重、校验凭据与扫描缓存。已知同步基线无需下载完整历史比较，仅首次关联或无法判定的变化深入检查。不可变发布元数据校验后保存在本机缓存，下次仅获取新记录；当前实现仍需列举记录名称，长时间累积大量记录时列表开销会增长。元数据总量设置安全上限以避免内存失控，原发布日志不删除，新增压缩检查点作为读取加速。读取旧格式与恢复原始对话继续支持。
 
-- [Windows Setup 安装版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.15/SessionDesk-0.16.0-beta.15-Setup-win-x64.exe)
-- [Windows 单文件便携 EXE](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.15/SessionDesk-0.16.0-beta.15-portable-win-x64.exe)
-- [Apple Silicon Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.15/SessionDesk-0.16.0-beta.15-mac-arm64.dmg)
-- [Intel Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.15/SessionDesk-0.16.0-beta.15-mac-x64.dmg)
-- [全部附件、校验文件及验收限制](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.15)
+- [Windows Setup 安装版](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.16/SessionDesk-0.16.0-beta.16-Setup-win-x64.exe)
+- [Windows 单文件便携 EXE](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.16/SessionDesk-0.16.0-beta.16-portable-win-x64.exe)
+- [Apple Silicon Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.16/SessionDesk-0.16.0-beta.16-mac-arm64.dmg)
+- [Intel Mac DMG](https://github.com/woufs-cs/codex-session-desk/releases/download/v0.16.0-beta.16/SessionDesk-0.16.0-beta.16-mac-x64.dmg)
+- [全部附件、校验文件及验收限制](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.16)
 
 Mac 安装：打开 DMG，把应用拖入 Applications。包未签名／公证，必要时在系统“隐私与安全性”中允许打开。应用自带运行环境，无需安装 Node.js；仍需检测本机 Codex 连接程序。
 
@@ -67,7 +73,7 @@ Mac 安装：打开 DMG，把应用拖入 Applications。包未签名／公证�
 
 当前预览版同时提供 Setup 和单文件 portable EXE。
 
-也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.15) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
+也可以从 [Releases](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.16) 下载 **`SessionDesk-版本-portable-win-x64.exe`**：
 
 1. 将这个 EXE 放到任意可写位置，例如 D 盘工具目录，双击即可启动。
 2. 无需安装、无需手动解压，不需要把 DLL 或 resources 文件夹放在旁边。
@@ -141,7 +147,7 @@ Mac 安装：打开 DMG，把应用拖入 Applications。包未签名／公证�
 | 本机更完整 | 保留本机 |
 | 两边分叉 | 逐条选择保留本机或采用云端，保持原 ID |
 
-冲突必须逐条确认。采用云端会替换本机完整历史，保留本机会维持现有历史；不自动合并或创建分叉。需要分叉时请在 Codex 中手动创建。项目归属冲突需先核对绑定。选择保留本机后，可发布本机项目，再让另一台接收该快照。
+冲突必须逐条确认。采用云端会替换本机完整历史，保留本机会维持现有历史；不自动合并或创建分叉。需要分叉时请在 Codex 中手动创建。项目归属冲突需先核对绑定。推荐在本机项目选择“采用本机并上传”，直接完成发布；手动接收预览中的“保留本机”仅保留本地内容。
 
 ## 数据和隐私
 
@@ -258,11 +264,11 @@ npm run dist:portable
 
 这是尚未经过 Mac 真机验收的预览源码；上方 0.15.6 是已发布的 Windows 稳定版本。Mac 首版不强制终止进程，未签名的构建也可能受到系统打开限制。详细安装、同步、打包和测试步骤见 [macOS 使用指南](docs/macos.md)。
 
-## 0.16.0-beta.15：桌面登记与单版本接收
+## 0.16.0-beta.16：桌面登记与单版本接收
 
-下载：[Windows / macOS 安装包](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.15)。Windows 选择 Setup EXE（安装版）或 portable EXE（便携版）；Apple Silicon 选择 mac-arm64.dmg，Intel Mac 选择 mac-x64.dmg，将应用拖入 Applications。Mac 包未签名或公证，系统可能要求在“隐私与安全性”中明确允许打开；不需要关闭系统安全功能。连接程序仍使用本机 Codex CLI，安装包不包含账号或用户配置。
+下载：[Windows / macOS 安装包](https://github.com/woufs-cs/codex-session-desk/releases/tag/v0.16.0-beta.16)。Windows 选择 Setup EXE（安装版）或 portable EXE（便携版）；Apple Silicon 选择 mac-arm64.dmg，Intel Mac 选择 mac-x64.dmg，将应用拖入 Applications。Mac 包未签名或公证，系统可能要求在“隐私与安全性”中明确允许打开；不需要关闭系统安全功能。连接程序仍使用本机 Codex CLI，安装包不包含账号或用户配置。
 
-接收冲突逐条选“保留本机”或“采用云端，替换本机”，同一 ID 仅保留当前版本，不再自动分叉、不保存永久对话备份。选择本机后，需发布本机快照，再由另一台接收。云端已有快照及本机历史分叉不会自动删除。
+接收冲突逐条选“保留本机”或“采用云端，替换本机”，同一 ID 仅保留当前版本，不再自动分叉、不保存永久对话备份。手动接收预览选择保留本机后，仍需发布；新版本机项目的“采用本机并上传”会直接完成发布。云端已有快照及本机历史分叉不会自动删除。
 
 桌面项目登记与底层数据库归属分开验证。原生接收完成后，在 Codex 完全退出时，兼容已识别的 `.codex-global-state.json` 结构：按原生项目 ID 复用登记，补齐主机映射、会话关联及排序。不通过同名或同目录猜测合并项目。未知结构、其他主机归属、其他项目关联或文件并发修改会停止登记，并报告具体原因。
 

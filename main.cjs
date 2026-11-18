@@ -45,9 +45,9 @@ async function checkUpdates(config,ref){
   }
   if(status==='publish'&&!p.threadIds.includes(tid))status='untracked';
   if(status==='synced')bases[tid]={local:local.digest,cloud:r.hash};
-  rows.push({id:tid,title:local?.nativeName||local?.title||r?.name||tid,status,localHash:local?.digest,cloudHash:r?.hash});
+  rows.push({id:tid,title:local?.nativeName||local?.title||r?.name||tid,status,selected:p.threadIds.includes(tid),localHash:local?.digest,cloudHash:r?.hash});
  }
- await save();return {key,id,remote:remote?{...remote,localRef:ref,localPath:p.cwd}:null,rows,source};
+ await save();return {key,id,remote:remote?{...remote,localRef:ref,localPath:p.cwd}:null,rows,source,localSessions:fresh.sessions};
 }
 async function publishUpdates(config,ref,check){
  const pending=new Set(check.rows.filter(r=>r.status==='publish').map(r=>r.id)),selected=check.source.selected.filter(s=>pending.has(s.id));
@@ -280,12 +280,35 @@ app.whenReady().then(async()=>{
     const answer=await dialog.showMessageBox(win,{type:'question',buttons:['取消','采用这个版本'],defaultId:0,cancelId:0,message:'将所选版本设为此对话的唯一当前云端版本？',detail:'不会创建分叉对话。此操作只处理云端冲突，之后点击同步更新接收内容。'});if(answer.response!==1)return false;
     await require('./project-journal.cjs').resolve(await conflictStore(config,ref),id,hash,expected,state.deviceId);return true;
   });
+  async function checkedConflict(config,ref,id,expected){
+    const c=await checkUpdates(config,ref),row=c.rows.find(r=>r.id===id);
+    if(row?.status!=='conflict'||!expected||row.localHash!==expected.localHash||row.cloudHash!==expected.cloudHash)throw Error('本机或云端版本已变化，请重新检查并选择');return {c,row};
+  }
+  register('inspectProjectConflict',async(config,ref,id,expected)=>{
+    const {c,row}=await checkedConflict(config,ref,id,expected),local=c.localSessions.find(s=>s.id===id),remote=c.remote.objects.find(o=>o.id===id),cache=path.join(app.getPath('userData'),'staging');
+    await core.download(core.projectStore(storage(config),c.remote),{...c.remote,objects:[remote]},[],cache,progress,{deferCompare:true});
+    const sides={local:await recentMessages(local.file),remote:await recentMessages(path.join(cache,remote.hash+'.jsonl'))};
+    if(await require('./session-io.cjs').hashFile(local.file)!==row.localHash)throw Error('本机对话已变化，请重新检查');
+    return {...sides,expected:{localHash:row.localHash,cloudHash:row.cloudHash},selected:row.selected};
+  });
+  register('resolveProjectConflict',async(config,ref,id,policy,expected)=>{
+    if(!['local','remote'].includes(policy))throw Error('请选择本机或云端版本');const {c,row}=await checkedConflict(config,ref,id,expected);
+    if(policy==='local'){
+      if(!c.source.selected.some(s=>s.id===id))throw Error('请先勾选该对话参与同步，再检查更新');
+      const published=await publishUpdates(config,ref,{...c,rows:[{...row,status:'publish'}]});plan=[];planProject=null;
+      return {kind:'published',cloudConflict:!!published.cloudConflicts?.some(r=>r.id===id)};
+    }
+    commits=commits.filter(v=>v.projectId!==c.remote.projectId);commits.push(c.remote);await actions.download(config,c.remote.id,[id]);
+    const target=plan.find(r=>r.id===id);if(target?.status!=='conflict'||target.localDigest!==expected.localHash||target.hash!==expected.cloudHash){plan=[];planProject=null;throw Error('对话在准备接收时变化，请重新检查');}
+    target.conflictPolicy='remote';return {kind:'receive',remote:c.remote};
+  });
   register('syncProjectUpdates',async(config,ref)=>{
-    const c=await checkUpdates(config,ref);await publishUpdates(config,ref,c);
+    const c=await checkUpdates(config,ref);await publishUpdates(config,ref,c);const publishedCount=c.rows.filter(r=>r.status==='publish').length;
     const next=await checkUpdates(config,ref),receive=next.rows.filter(r=>['receive','conflict'].includes(r.status)).map(r=>r.id);
     if(next.remote){commits=commits.filter(c=>c.projectId!==next.remote.projectId);commits.push(next.remote);}
-    if(receive.length)await actions.download(config,next.remote.id,receive);
-    return {rows:next.rows,receive:receive.length,remote:next.remote};
+    const needsChoices=next.rows.some(r=>['conflict','cloud-conflict'].includes(r.status));
+    if(receive.length&&!needsChoices)await actions.download(config,next.remote.id,receive);else {plan=[];planProject=null;}
+    return {rows:next.rows,receive:needsChoices?0:receive.length,pendingReceive:receive.length,needsChoices,publishedCount,remote:next.remote};
   });
   register('publish',async(config,ref,name,consent)=>{
     if(consent!==true)throw Error('请确认完整会话上传授权');const c=await checkUpdates(config,ref);
